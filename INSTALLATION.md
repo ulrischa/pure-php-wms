@@ -1,142 +1,148 @@
-# Installation und erster eigener Dienst
+# Installation, administration and deployment guide
 
-## 1. Paket entpacken und PHP prüfen
+This guide assumes the project is **Pure PHP WMS** and its supported protocol is **WMS 1.3.0**. Start with the [README](README.md) for example map requests, terminology and symbology. For all JSON fields see [CONFIGURATION.md](docs/CONFIGURATION.md).
 
-Das ZIP enthält eine vollständige Installation mit Bibliotheken und synthetischen Beispieldaten. Es werden keine echten Verwaltungs- oder Nutzerdaten mitgeliefert.
+## 1. Choose a deployment model
 
-Zum Ausprobieren der Demo auf dem Hosting sind **weder Composer noch SSH nötig**. Für eigene Daten wird das mitgelieferte Importwerkzeug einmalig lokal auf einem Rechner mit PHP ausgeführt. Alternativ kann es auf dem Hosting laufen, wenn dort eine PHP-Kommandozeile vorhanden ist.
+**Option A — recommended: `public/` is the web DocumentRoot.**
 
-Beim Hoster aktivieren: PHP ab 8.2, GD mit FreeType, PDO_SQLite, XMLWriter, mbstring und iconv. Wenn der Hoster ein PHP-Modul namens `sqlite3` anbietet, trotzdem kontrollieren, dass auch `pdo_sqlite` aktiv ist.
+Place the application at a private filesystem path such as `/home/account/pure-php-wms/`, and configure the Apache vhost / subdomain DocumentRoot as `/home/account/pure-php-wms/public/`. The entry URL becomes `https://maps.example.org/wms.php`. The sibling `config/`, `data/`, `sources/`, `resources/`, `vendor/` and `cache/` directories are outside the public document root.
 
-Lokal im entpackten Projektordner:
+**Option B — shared hosting with FTP and a fixed webroot.**
+
+Upload the *entire* distribution to `public_html/wms/` and use `https://example.org/wms/public/wms.php`. Include both the root `.htaccess` and `public/.htaccess`. The root file denies access to the project tree; `public/.htaccess` explicitly permits the public endpoint. Verify that Apache actually honors these directives. If it does not, **do not** use this layout; switch to Option A.
+
+Neither option needs a persistent PHP worker, Node.js, GDAL or MapServer.
+
+## 2. Verify PHP and acquire the files
+
+You need Apache 2.4, **64-bit PHP 8.2+**, and the extensions `gd` **with FreeType**, `pdo_sqlite` **with RTree**, `xmlwriter`, `mbstring` and `iconv`. A reasonable starting point is `memory_limit=256M` and `max_execution_time >= 20` seconds for HTTP maps. Adjust based on actual hosting tests.
+
+The **distribution ZIP**, when provided, includes `vendor/` and prepared synthetic demo datasets. It can be uploaded with FTP and run without Composer on the host. A raw **Git checkout does not necessarily include `vendor/`**; prepare dependencies on your own computer with:
+
+```sh
+composer install --no-dev --prefer-dist
+```
+
+For PHP CLI on Windows you can run the full path to `php.exe` if it is not on PATH. Run in the project root:
 
 ```sh
 php bin/console.php doctor
+php bin/console.php validate
+php bin/console.php list
 ```
 
-Unter Windows kann `php` durch den vollständigen Pfad zur `php.exe` ersetzt werden. Die PHP-Version für den Import darf neuer sein als die Hosting-Version, sofern beide mindestens 8.2 sind. Die erzeugten SQLite-Datensätze sind keine PHP-Binärmodule.
+The `doctor` command checks prerequisites and displays whether `cache/` and `data/` are writable. `validate` checks the configured service/style JSON and locally available source paths. Do not use it as a substitute for real HTTP/Apache tests.
 
-## 2. Öffentliche URL eintragen
+## 3. Set the public URL
 
-`config/server.json` bearbeiten:
-
-```json
-"base_url": "https://example.org/wms/public/wms.php"
-```
-
-Die vollständige tatsächliche URL zu `wms.php` einsetzen, **ohne Querystring**. Diese URL wird in QGIS als Dienstadresse verwendet und in den Capabilities veröffentlicht. Host-Header des Clients werden dafür nicht übernommen.
-
-## 3. Auf Apache hochladen
-
-### Variante A: Eigener DocumentRoot möglich — bevorzugt
-
-Den Projektordner beispielsweise nach `/home/account/php-wms/` hochladen. DocumentRoot der gewünschten Subdomain auf `/home/account/php-wms/public/` setzen. Die öffentliche URL ist dann beispielsweise `https://karten.example.org/wms.php`.
-
-`config/`, `sources/`, `data/`, `vendor/` und `cache/` liegen damit außerhalb des öffentlichen Verzeichnisses.
-
-### Variante B: Nur FTP in ein festes Webroot möglich
-
-Den gesamten Projektordner nach beispielsweise `public_html/wms/` hochladen, **einschließlich beider `.htaccess`-Dateien**. FTP-Programme blenden Dateien mit führendem Punkt teilweise aus.
-
-- Aufruf: `https://example.org/wms/public/wms.php`.
-- Die `.htaccess` im Projektstamm sperrt den Stamm und die privaten Unterverzeichnisse.
-- Die `.htaccess` in `public/` gibt ausschließlich dieses Verzeichnis wieder frei.
-- Apache muss diese Zugriffsregeln erlauben. Falls der Hoster `.htaccess` ignoriert, ist diese Variante ungeeignet; Variante A verwenden.
-
-Nach dem Upload prüfen:
-
-1. Der GetCapabilities-Aufruf aus der README liefert XML.
-2. `https://example.org/wms/config/server.json` liefert **403 oder 404**, niemals Konfigurationsdaten.
-3. `https://example.org/wms/data/places.sqlite` liefert **403 oder 404**, niemals die Datenbank.
-4. Die Demo-Karten-URL liefert eine PNG-Karte.
-
-Nur `cache/` muss im laufenden Webbetrieb für den PHP-Benutzer schreibbar sein. `data/` braucht Schreibrechte nur dort, wo importiert wird. Sonstige Dateien sollen lediglich lesbar sein. Keine pauschalen `chmod 777`-Rechte setzen. Welche Eigentümer-/Gruppenrechte erforderlich sind, hängt vom Hosting ab.
-
-Falls Apache wegen `Options -Indexes` mit HTTP 500 antwortet, erlaubt der Hoster diese Options-Direktive nicht. Sie kann in `public/.htaccess` entfernt werden, wenn Verzeichnisauflistung bereits zentral deaktiviert ist. Die `Require`-Zugriffsregeln nicht entfernen, um einen Fehler zu umgehen.
-
-## 4. In QGIS verbinden
-
-1. Neue **WMS/WMTS-Verbindung** anlegen.
-2. URL: `https://example.org/wms/public/wms.php?MAP=demo`.
-3. Verbinden und einen oder mehrere Layer auswählen.
-4. PNG und einen angebotenen CRS verwenden.
-5. Mit „Objekte abfragen“ die freigegebenen Attribute prüfen.
-
-Ein Dienstname entspricht einer Datei unter `config/services/`, beispielsweise `demo.json` → `MAP=demo`. Mehrere Dienste können dieselben vorbereiteten Daten nutzen.
-
-## 5. Eigenes Shapefile vorbereiten
-
-Alle zusammengehörenden Dateien mit gleichem Basenamen in `sources/` ablegen:
-
-```text
-schutzgebiete.shp
-schutzgebiete.shx
-schutzgebiete.dbf
-schutzgebiete.prj
-schutzgebiete.cpg
-```
-
-Der Server benötigt die Geometrie- und Attributdateien `.shp` und `.dbf`. `.shx`, `.prj` und `.cpg` als vollständigen Datensatz mitführen. **CRS und DBF-Encoding werden bewusst in der Konfiguration angegeben; die PRJ-/CPG-Dateien werden nicht automatisch interpretiert.** So wird eine unbekannte Projektion nicht stillschweigend als WGS84 behandelt.
-
-In QGIS kontrollieren: gültige Geometrien, unterstützter CRS, keine exotischen DBF-Spalten. Für Bayern ist beispielsweise **EPSG:25832** üblich. Ist die SHP-Datei zu groß, die Daten in Teilgebiete aufteilen oder als GeoJSON exportieren. Bei GeoJSON nach EPSG:4326 exportieren.
-
-## 6. Datenquelle registrieren
-
-In `config/sources.json` einen weiteren Eintrag ergänzen. Beispiel für DBF in Windows-1252:
+Edit `config/server.json`:
 
 ```json
 {
-  "schutzgebiete": {
-    "file": "schutzgebiete.shp",
-    "crs": "EPSG:25832",
-    "encoding": "Windows-1252"
-  }
+  "base_url": "https://example.org/wms/public/wms.php",
+  "default_service": "demo",
+  "max_side": 2048,
+  "max_pixels": 2097152,
+  "max_features": 5000,
+  "max_vertices": 250000,
+  "max_seconds": 10,
+  "max_parallel": 3,
+  "cache_slots": 64,
+  "cache_ttl": 3600,
+  "cors_origins": ["*"]
 }
 ```
 
-Das Beispiel zeigt einen vollständigen Inhalt für genau eine Datenquelle. Bereits vorhandene Einträge beibehalten, wenn die Demo weiterhin funktionieren soll. Für UTF-8-DBF `"encoding": "UTF-8"` verwenden.
+Replace `base_url` with the **actual external URL of `wms.php` without `?` parameters**. It is published in GetCapabilities; it is not inferred from a client-supplied Host header. For private services, CORS configuration alone is not sufficient: add Apache-level access control.
 
-Weitere Formate:
+## 4. Deploy and verify security
+
+Upload the application tree. With Option B, check that the FTP program did not hide dotfiles.
+
+Normal HTTP requests must be able to **read** code, configuration and `data/*.sqlite`; only `cache/` needs to be **writable** by the PHP user. `data/` only needs write access where CLI imports are performed. Avoid `chmod 777` on shared hosting. Directory owner/group strategy depends on the provider.
+
+Verify these URLs in a browser or HTTP client:
+
+```text
+https://example.org/wms/public/wms.php?MAP=demo&SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities
+https://example.org/wms/public/wms.php?MAP=demo&SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=land,routes,places&STYLES=&CRS=CRS:84&BBOX=11.28,48.18,11.39,48.245&WIDTH=1000&HEIGHT=700&FORMAT=image/png&TRANSPARENT=TRUE
+```
+
+Capabilities should be XML; GetMap should be a PNG. With Option B, `https://example.org/wms/config/server.json` and `https://example.org/wms/data/places.sqlite` **must return 403 or 404**. Never accept a 200 response that exposes either file. If `Options -Indexes` in `public/.htaccess` causes HTTP 500 because the host prohibits the directive, it may be removed **only if directory listing is already disabled by Apache**. Do not remove access restrictions to work around a hosting error.
+
+## 5. Connect a WMS client
+
+In QGIS choose **Data Source Manager → WMS/WMTS → New**. Paste this connection URL:
+
+```text
+https://example.org/wms/public/wms.php?MAP=demo
+```
+
+Click Connect; select the advertised vector-based WMS layers; use PNG and one of the supported CRSs. QGIS consumes *rendered images*, not editable original geometry. The Identify tool can request feature information for layers marked `queryable`. If a connection fails, first load the GetCapabilities URL explicitly and check the returned XML or error.
+
+For WMS 1.3.0, **EPSG:4326 BBOX order is latitude,longitude** whereas **CRS:84 BBOX order is longitude,latitude**. Original GeoJSON coordinates are still always read as x,y (longitude,latitude).
+
+## 6. Import your own sources on a computer with PHP CLI
+
+**Shapefile:** place same-basename files under `sources/`:
+
+```text
+sources/protected_areas.shp
+sources/protected_areas.shx
+sources/protected_areas.dbf
+sources/protected_areas.prj
+sources/protected_areas.cpg
+```
+
+The geometry/attributes come from SHP/DBF. Include the other companion files for completeness, but explicitly configure the CRS and DBF encoding: the importer does **not** parse `.prj`/`.cpg` automatically. Convert unsupported DBF field types (memo/binary) in a GIS. The SHP size cap is **16 MiB**; for larger sets export EPSG:4326 GeoJSON or divide by region.
+
+**GeoJSON:** create an EPSG:4326 GeoJSON **FeatureCollection** in `sources/`. The importer streams features but individual large geometries are still bounded. For source config use `"file": "areas.geojson", "crs": "EPSG:4326"`.
+
+**GeoPackage:** select a supported **simple-feature vector table** by its exact `table` name. Its configured EPSG value must agree with GPKG metadata. Raster tiles, curved geometry and arbitrary SQL views are not supported.
+
+Edit the **top-level object** in `config/sources.json`; do not overwrite unrelated existing entries:
 
 ```json
 {
-  "orte": {
-    "file": "orte.geojson",
+  "protected_areas": {
+    "file": "protected_areas.shp",
+    "crs": "EPSG:25832",
+    "encoding": "Windows-1252"
+  },
+  "monitoring_points": {
+    "file": "stations.geojson",
     "crs": "EPSG:4326"
   },
-  "wege": {
-    "file": "landschaft.gpkg",
-    "table": "wege",
+  "administrative_areas": {
+    "file": "areas.gpkg",
+    "table": "areas",
     "crs": "EPSG:25832"
   }
 }
 ```
 
-Bei GeoPackage muss `table` exakt dem Namen der Vektortabelle entsprechen; die EPSG-Nummer muss mit der GeoPackage-Metadatenangabe übereinstimmen. Rasterkacheln oder SQL-Ansichten sind keine unterstützten Datenquellen.
+The example represents **three sources**; merge it with the bundled demo entries if those should remain available. Names must begin with lowercase a–z, followed only by lowercase letters, digits, `_` or `-`, maximum 64 characters.
 
-## 7. Lokal importieren
-
-```sh
-php bin/console.php import schutzgebiete
-```
-
-Ergebnis: `data/schutzgebiete.sqlite` mit Geometrien, Attributen und räumlichem Index. Die Quelldateien bleiben unverändert.
-
-Falls der Shapefile-Importer zu wenig Speicher meldet, kann der **lokale** Import mit höherem Speicherlimit erfolgen:
+From the project root on the import machine:
 
 ```sh
-php -d memory_limit=1G bin/console.php import schutzgebiete
+php bin/console.php validate
+php bin/console.php import protected_areas
+php bin/console.php import monitoring_points
+php bin/console.php import administrative_areas
+php bin/console.php list
 ```
 
-Die feste SHP-Grenze von 16 MiB bleibt bestehen. Größere Daten vorab anders exportieren oder aufteilen. GeoJSON wird sequenziell gelesen; ein einzelnes riesiges Feature kann dennoch viel Speicher benötigen. Es gelten die Grenzen aus der Konfigurationsdokumentation.
+Alternatively `php bin/console.php import --all` imports every configured source. For heavy local imports only, you may temporarily increase CLI memory using `php -d memory_limit=1G bin/console.php import protected_areas`; the hard 16 MiB SHP limit still applies. The result for each source is a **different** file `data/NAME.sqlite` with geometries, attributes and RTree, normalized to EPSG:4326. Source files are unchanged. Failed imports do not replace the previously published dataset.
 
-## 8. Stil erstellen
+## 7. Create reusable symbols and styles
 
-`config/styles/schutzgebiet.json`:
+Create `config/styles/protected_area.json`:
 
 ```json
 {
-  "title": "Schutzgebiete",
+  "title": "Protected areas",
   "legend_geometry": "polygon",
   "fill": "#75b76b70",
   "stroke": "#2b6933",
@@ -144,84 +150,105 @@ Die feste SHP-Grenze von 16 MiB bleibt bestehen. Größere Daten vorab anders ex
   "label_field": "NAME",
   "font_size": 12,
   "label_color": "#173d20",
-  "halo_color": "#ffffff",
   "halo": 2
 }
 ```
 
-`NAME` ist ein Beispiel. Den tatsächlichen, groß-/kleinschreibungsabhängigen DBF-Spaltennamen einsetzen.
+`NAME` must be the actual case-sensitive attribute name; for no labels remove `label_field`.
 
-## 9. Dienst erstellen
+For point markers, set `"legend_geometry": "point"`, `"symbol": "triangle"`, `"size": 18`, `"fill": "#d34836"`. Supported shapes: `circle`, `square`, `triangle`, `diamond`, `cross`. An icon can replace the shape: put `warning.png` in `resources/` and set `"icon": "warning.png"`. It must be PNG, no larger than 512 × 512 pixels and 1 MiB. The `size` field controls its rendered width and height. For another TTF font place it in `resources/` and set `"font": "MyFont.ttf"`. The bundled `DejaVuSans.ttf` is the default.
 
-`config/services/umwelt.json`:
+Use `rules` for a simple legend with multiple attribute categories; the first matching `field` / `equals` rule replaces only named base properties:
 
 ```json
 {
-  "title": "Umweltkarten",
-  "abstract": "Schutzgebiete und weitere Umweltdaten",
+  "title": "Monitoring stations",
+  "symbol": "circle",
+  "size": 12,
+  "fill": "#367ab8",
+  "rules": [
+    {
+      "field": "STATUS",
+      "equals": "critical",
+      "symbolizer": {"symbol": "triangle", "fill": "#d34836", "size": 18}
+    }
+  ]
+}
+```
+
+Rules are literal scalar comparisons, **not** SQL or an expression language. See the full [symbology reference](docs/CONFIGURATION.md) for every supported field, transparency, scale denominators, labels and limitations.
+
+## 8. Create a layer inside a new service
+
+Create `config/services/environment.json`:
+
+```json
+{
+  "title": "Environmental maps",
+  "abstract": "Published local datasets",
   "layers": {
-    "schutzgebiete": {
-      "title": "Schutzgebiete",
-      "dataset": "schutzgebiete",
-      "styles": ["schutzgebiet"],
+    "protected_areas": {
+      "title": "Protected areas",
+      "dataset": "protected_areas",
+      "styles": ["protected_area"],
       "queryable": true,
-      "query_fields": ["NAME", "TYP"]
+      "query_fields": ["NAME", "TYPE"]
+    },
+    "stations": {
+      "title": "Monitoring stations",
+      "dataset": "monitoring_points",
+      "styles": ["monitoring_stations"],
+      "queryable": true,
+      "query_fields": ["NAME", "STATUS"]
     }
   }
 }
 ```
 
-Nur die genannten `query_fields` werden durch GetFeatureInfo veröffentlicht. Alle anderen Attribute bleiben aus dieser Antwort ausgeschlossen. Die Geometrie des abgefragten Objekts wird als GeoJSON mitgeliefert. Beschriftungsfelder werden natürlich auf der Karte sichtbar; sensible Attribute deshalb auch nicht als Label verwenden.
+This two-layer example assumes you **also created** `config/styles/monitoring_stations.json` from the rule example above. The strings `protected_areas` and `stations` are public **layer IDs**, while `protected_areas` and `monitoring_points` in `dataset` refer to **source IDs** in `sources.json`. Each layer's `styles` list contains existing style **file basenames**. Use `"styles": ["protected_area", "protected_area_contrast"]` to advertise alternatives; the first becomes default. For another service, create another file in `config/services/` and select it with `MAP=other_service`.
 
-Lokal prüfen:
+The `query_fields` list must be present, even for nonqueryable layers, and controls which **properties** are returned by `GetFeatureInfo`; geometry is returned too. For a nonqueryable layer, use `"queryable": false, "query_fields": []`. Never publish confidential attributes, labels or geometries inadvertently.
+
+Validate locally:
 
 ```sh
 php bin/console.php validate
 ```
 
-## 10. Eigene Dateien hochladen
+Then deploy `config/sources.json`, the service and style JSON files, new fonts/icons (if any), and all required `data/*.sqlite`. **No source upload is needed** if local import is complete. New WMS URL:
 
-Hochladen:
+```text
+https://example.org/wms/public/wms.php?MAP=environment
+```
 
-- aktualisierte `config/sources.json`;
-- `config/services/umwelt.json`;
-- `config/styles/schutzgebiet.json`;
-- `data/schutzgebiete.sqlite`;
-- zusätzliche Schriften/Symbole aus `resources/`, falls verwendet.
+## 9. Safe updates, caching and operations
 
-Die Quelldateien unter `sources/` müssen nicht auf das Hosting, wenn nur lokal importiert wird. Die vorbereiteten SQLite-Dateien genügen für die Kartenauslieferung. `validate` erwartet Quelldateien und ist deshalb für die lokale Arbeitskopie vorgesehen.
+For a data refresh, update the local source, re-run `import NAME`, then **do not overwrite** a live SQLite file byte by byte over FTP. Upload it as `NAME.sqlite.upload` and atomically rename it after completion **only if the server supports atomic replacement**. Otherwise publish under a new dataset ID, then switch the referencing service configuration. Apply the same care when uploading JSON files in production.
 
-Dienst-URL: `https://example.org/wms/public/wms.php?MAP=umwelt`.
+Each published dataset has a revision used in map cache keys. Style and icon/font content changes are also reflected in those keys. **After changing application code**, run `php bin/console.php clear-cache` on the server or carefully remove only old `cache/map-*.bin` files while preserving active lock files. If cache space is tight, lower `cache_slots`, `cache_ttl` or `max_pixels`.
 
-## Aktualisierungen ohne beschädigte Zwischenstände
+CLI commands:
 
-1. Lokale Quelldatei ersetzen und erneut importieren.
-2. Neue SQLite-Datei zuerst unter einem temporären Namen hochladen, beispielsweise `schutzgebiete.sqlite.upload`.
-3. Erst nach vollständig abgeschlossenem Upload per serverseitigem FTP-Umbenennen die veröffentlichte Datei ersetzen, sofern der Hoster atomisches Ersetzen unterstützt.
-4. Ist atomisches Ersetzen nicht möglich: neues Dataset unter neuem Namen hochladen und danach die Dienstkonfiguration auf diesen Namen umstellen; Konfiguration ebenfalls möglichst per Umbenennen ersetzen.
-
-Nie eine gerade verwendete SQLite-Datei direkt stückweise per FTP überschreiben. Ein erfolgreicher Import erzeugt automatisch eine neue Revision, sodass alte Karten nicht aus dem Anwendungscache übernommen werden. Nach einem Softwareupdate den Karten-Cache leeren; Konfigurations- und Symboländerungen fließen bereits in den Schlüssel ein.
-
-## Verwaltungskommandos
-
-| Kommando | Zweck |
+| Command | Function |
 |---|---|
-| `php bin/console.php doctor` | PHP-Erweiterungen, FreeType, SQLite-RTree und Verzeichnisrechte prüfen |
-| `php bin/console.php validate` | Dienste, Stile und vorhandene Quellen prüfen |
-| `php bin/console.php import --all` | Alle konfigurierten Quellen nacheinander importieren |
-| `php bin/console.php import NAME` | Einen Datensatz aktualisieren |
-| `php bin/console.php list` | Importrevision, Ausdehnung und Objektanzahl anzeigen |
-| `php bin/console.php clear-cache` | Kartencache leeren |
+| `doctor` | Check PHP extensions, FreeType, SQLite RTree, directory permissions |
+| `validate` | Check configured service/style/source relationships |
+| `import NAME` | Import a named source |
+| `import --all` | Import all sources |
+| `list` | Show dataset revision, extent and feature counts |
+| `clear-cache` | Remove map cache files |
 
-Es gibt absichtlich keinen öffentlich erreichbaren Import-/Upload-Endpunkt und kein zusätzliches Web-Administratorkonto. Die Administration erfolgt über die strukturierten Dateien und diese lokalen Kommandos. Für nichtöffentliche WMS-Dienste kann der Hoster Apache-Zugriffsschutz vor `public/` schalten.
+All commands use `php bin/console.php COMMAND` in the project root. There is intentionally **no HTTP upload endpoint**, no browser-based administrative interface and no CLI daemon.
 
-## Fehlerdiagnose
+## 10. Common problems
 
-- **HTTP 400 mit ServiceException:** Parameter, Layer, Stil, BBOX und WMS-Version kontrollieren.
-- **HTTP 503 „Dataset not imported“ im PHP-Log:** Zugehörige `data/NAME.sqlite` fehlt oder ist nicht lesbar.
-- **HTTP 503 „Rendering budget exceeded“:** Größer hineinzoomen, Geometrien vereinfachen, weniger Layer oder kleineres Bild anfragen.
-- **HTTP 503 „Server busy“:** Alle Renderplätze sind belegt; später erneut anfragen oder Hosting-Limits prüfen.
-- **HTTP 503 mit Referenznummer:** Nach der Referenz im PHP-Error-Log suchen. Dateipfade und Stacktraces werden nicht an Clients ausgegeben.
-- **Leere Karte:** CRS und Achsenreihenfolge, Layername, Datenausdehnung und Maßstabsgrenzen des Stils prüfen.
-- **Falsche Umlaute:** DBF-Encoding korrigieren und neu importieren.
-- **Config-Datei über HTTP lesbar:** Veröffentlichung stoppen und Apache-Zugriffsschutz korrigieren; die Datenordner vorzugsweise außerhalb des Webroots ablegen.
+- **WMS exception / HTTP 400:** confirm parameter syntax, `MAP`, layer names, style IDs, BBOX/CRS order, dimensions, format and version 1.3.0.
+- **HTTP 503 or missing dataset:** check `data/NAME.sqlite`, file permissions and the PHP error log (use the response reference ID).
+- **HTTP 503 "Rendering budget exceeded":** zoom in; simplify or split complex geometries; reduce image resolution or active layers.
+- **HTTP 503 "Server busy":** maximum concurrent render slots are occupied; inspect workload and hosting process limits.
+- **Empty image:** confirm spatial extent, layer drawing order, EPSG:4326 axis order and style `min_scale`/`max_scale`.
+- **Mojibake/incorrect accented text:** correct Shapefile DBF `encoding`, then import again.
+- **HTTP 500 on Apache:** inspect Apache/PHP logs, verify .htaccess permissions; some hosts prohibit `Options -Indexes`.
+- **Config or SQLite downloadable by URL:** halt deployment and fix access restrictions immediately.
+
+See [VALIDATION.md](docs/VALIDATION.md) for scope, budgets, tests and remaining production checks.

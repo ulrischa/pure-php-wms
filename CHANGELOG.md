@@ -2,19 +2,25 @@
 
 ## 1.0.0-rc.1 — 2026-10-09
 
-- WMS 1.3.0 GetCapabilities, PNG GetMap and JSON/text GetFeatureInfo.
+- WMS 1.3.0 GetCapabilities, PNG GetMap and JSON/plain-text GetFeatureInfo.
 - Configuration-based services, reusable styles and explicit attribute allowlists.
-- SHP/DBF, streamed GeoJSON and simple-feature GeoPackage imports.
-- Atomic SQLite dataset publishing with an RTree index.
-- GD rendering with polygon holes, local PNG symbols and FreeType labels.
-- Bounded caching, render slots, request validation and error isolation.
+- ESRI Shapefile/DBF, streamed GeoJSON and simple-feature GeoPackage imports.
+- Atomic SQLite dataset publishing with RTree spatial indexing.
+- GD rendering with polygon holes, local PNG icons and FreeType text labels.
+- Bounded caching, rendering slots, request validation and isolated error responses.
 - Synthetic format fixtures, OGC schema validation and HTTP smoke tests.
 
-Known scope and deployment validation requirements are documented in README.md and docs/VALIDIERUNG.md.
+### OGC reference review — 2026-10-09
 
-## OGC-Referenzprüfung – 2026-10-09
+- Corrected WMS parameter requirements, handling of extension parameters and exception codes.
+- Corrected GetFeatureInfo per-layer feature counts, invalid-count defaulting, nearest-hit ordering and exact MIME types.
+- Added schema hints and combined root-layer geographic bounds to GetCapabilities.
+- Included reference XML/XSD assets and recorded 105 functional and 20 HTTP checks.
 
-- WMS-Parameterpflichten, Erweiterungsparameter und Fehlercodes korrigiert.
-- GetFeatureInfo: Trefferzahl pro Layer, ungültige Zahlen mit Standardwert, nächste Treffer zuerst und exakte MIME-Typen.
-- Capabilities um Schemahinweis und gemeinsame Layer-Ausdehnung ergänzt.
-- Hochgeladene Referenzschemas und Beispiele aufgenommen; 105 Funktions- und 20 HTTP-Prüfungen bestanden.
+### English documentation and examples — 2026-10-09
+
+- Expanded README with step-by-step installation, data import, QGIS usage, creation of services and layers, symbology, custom icons, attribute rules, legends and safe deployment.
+- Translated installation, configuration, validation and OGC-reference guides to English; renamed the guides to English filenames.
+- Updated example service/style metadata to English without changing their published identifiers or datasets.
+
+Recorded validation scope and remaining production checks are documented in [VALIDATION.md](docs/VALIDATION.md).

@@ -1,9 +1,9 @@
 {
-  "title": "Demo · Münchner Westen",
-  "abstract": "Synthetische Beispieldaten für Flächen, Linien und Orte. Keine amtlichen Geodaten.",
+  "title": "Demo — Western Munich",
+  "abstract": "Synthetic sample data for polygons, lines and places. Not official geospatial data.",
   "layers": {
     "land": {
-      "title": "Flächen mit Polygonloch",
+      "title": "Areas with a polygon hole",
       "dataset": "land",
       "styles": [
         "land"
@@ -15,7 +15,7 @@
       ]
     },
     "routes": {
-      "title": "Wege",
+      "title": "Routes",
       "dataset": "routes",
       "styles": [
         "routes"
@@ -26,7 +26,7 @@
       ]
     },
     "places": {
-      "title": "Orte",
+      "title": "Places",
       "dataset": "places",
       "styles": [
         "places"
