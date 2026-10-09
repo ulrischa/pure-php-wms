@@ -1,0 +1,14 @@
+{
+  "land": {
+    "file": "land.geojson",
+    "crs": "EPSG:4326"
+  },
+  "places": {
+    "file": "places.geojson",
+    "crs": "EPSG:4326"
+  },
+  "routes": {
+    "file": "routes.geojson",
+    "crs": "EPSG:4326"
+  }
+}

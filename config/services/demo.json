@@ -1,0 +1,41 @@
+{
+  "title": "Demo · Münchner Westen",
+  "abstract": "Synthetische Beispieldaten für Flächen, Linien und Orte. Keine amtlichen Geodaten.",
+  "layers": {
+    "land": {
+      "title": "Flächen mit Polygonloch",
+      "dataset": "land",
+      "styles": [
+        "land"
+      ],
+      "queryable": true,
+      "query_fields": [
+        "name",
+        "kind"
+      ]
+    },
+    "routes": {
+      "title": "Wege",
+      "dataset": "routes",
+      "styles": [
+        "routes"
+      ],
+      "queryable": true,
+      "query_fields": [
+        "name"
+      ]
+    },
+    "places": {
+      "title": "Orte",
+      "dataset": "places",
+      "styles": [
+        "places"
+      ],
+      "queryable": true,
+      "query_fields": [
+        "name",
+        "kind"
+      ]
+    }
+  }
+}

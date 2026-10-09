@@ -1,0 +1,10 @@
+{
+  "title": "Grünflächen",
+  "legend_geometry": "polygon",
+  "fill": "#b6d7a8dd",
+  "stroke": "#497b55",
+  "stroke_width": 2,
+  "label_field": "name",
+  "font_size": 12,
+  "halo": 2
+}

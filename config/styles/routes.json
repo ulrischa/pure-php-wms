@@ -1,0 +1,9 @@
+{
+  "title": "Wege",
+  "legend_geometry": "line",
+  "stroke": "#c99055",
+  "stroke_width": 4,
+  "label_field": "name",
+  "font_size": 10,
+  "halo": 2
+}

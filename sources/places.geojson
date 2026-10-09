@@ -1,0 +1,49 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.333,
+          48.223
+        ]
+      },
+      "properties": {
+        "name": "Olching",
+        "kind": "town",
+        "internal_note": "not exposed"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.35,
+          48.201
+        ]
+      },
+      "properties": {
+        "name": "Bahnhof Süd",
+        "kind": "station",
+        "internal_note": "not exposed"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.298,
+          48.218
+        ]
+      },
+      "properties": {
+        "name": "Gröbenzell West",
+        "kind": "town"
+      }
+    }
+  ]
+}

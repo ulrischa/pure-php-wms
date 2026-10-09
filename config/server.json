@@ -1,0 +1,15 @@
+{
+  "base_url": "http://127.0.0.1:8080/wms.php",
+  "default_service": "demo",
+  "max_side": 2048,
+  "max_pixels": 2097152,
+  "max_features": 5000,
+  "max_vertices": 250000,
+  "max_seconds": 10,
+  "max_parallel": 3,
+  "cache_slots": 64,
+  "cache_ttl": 3600,
+  "cors_origins": [
+    "*"
+  ]
+}

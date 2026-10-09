@@ -1,0 +1,2 @@
+# Only public/ may be served; the project root must stay private.
+Require all denied

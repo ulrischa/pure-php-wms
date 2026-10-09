@@ -1,0 +1,6 @@
+/vendor/
+/cache/*
+!/cache/.gitkeep
+/data/*.tmp*
+/tests/output/
+/data/*.lock

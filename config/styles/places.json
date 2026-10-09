@@ -1,0 +1,23 @@
+{
+  "title": "Orte",
+  "symbol": "circle",
+  "size": 14,
+  "fill": "#e77736",
+  "stroke": "#873e20",
+  "stroke_width": 2,
+  "label_field": "name",
+  "font_size": 12,
+  "halo": 2,
+  "rules": [
+    {
+      "field": "kind",
+      "equals": "station",
+      "symbolizer": {
+        "symbol": "square",
+        "fill": "#4274ad",
+        "stroke": "#254a76",
+        "size": 15
+      }
+    }
+  ]
+}

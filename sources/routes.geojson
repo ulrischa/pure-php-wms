@@ -1,0 +1,32 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            11.295,
+            48.197
+          ],
+          [
+            11.315,
+            48.203
+          ],
+          [
+            11.352,
+            48.201
+          ],
+          [
+            11.372,
+            48.225
+          ]
+        ]
+      },
+      "properties": {
+        "name": "Radweg"
+      }
+    }
+  ]
+}
