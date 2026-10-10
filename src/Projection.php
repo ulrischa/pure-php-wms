@@ -8,15 +8,22 @@ use proj4php\{Proj4php, Proj, Point};
 
 final class Projection
 {
-    public const OUTPUT_CRS = ['EPSG:4326', 'CRS:84', 'EPSG:3857', 'EPSG:25832', 'EPSG:25833'];
     private Proj4php $engine;
     private array $projections = [];
 
-    public function __construct()
+    public function __construct(private readonly CrsRegistry $registry = new CrsRegistry())
     {
         $this->engine = new Proj4php();
-        foreach ([32,33] as $zone) {
-            $this->engine->addDef('EPSG:258' . $zone, "+proj=utm +zone=$zone +ellps=GRS80 +towgs84=0,0,0 +units=m +no_defs");
+        Proj4php::$proj['laea'] = new Laea();
+        foreach ($registry->definitions as $code => $definition) {
+            $this->engine->addDef($code, $definition['proj4']);
+        }
+    }
+
+    public function validate(): void
+    {
+        foreach ($this->registry->codes() as $code) {
+            $this->projections[$code] ??= new Proj($code, $this->engine);
         }
     }
 
@@ -25,9 +32,7 @@ final class Projection
         $source = $source === 'CRS:84' ? 'EPSG:4326' : $source;
         $target = $target === 'CRS:84' ? 'EPSG:4326' : $target;
         foreach ([$source,$target] as $crs) {
-            if (!in_array($crs, self::OUTPUT_CRS, true)) {
-                throw new \RuntimeException('Unsupported coordinate system: ' . $crs);
-            }
+            $this->registry->get($crs);
         }
         $x = (float)$point[0];
         $y = (float)$point[1];

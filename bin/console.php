@@ -14,7 +14,7 @@ try {
     $config = new Config(dirname(__DIR__));
     switch ($command) {
         case 'doctor':
-            foreach (['gd','pdo_sqlite','xmlwriter','mbstring','iconv'] as $extension) {
+            foreach (['dom', 'gd','pdo_sqlite','xmlwriter','mbstring','iconv'] as $extension) {
                 if (!extension_loaded($extension)) {
                     throw new RuntimeException('Missing PHP extension: '.$extension);
                 }
@@ -27,9 +27,10 @@ try {
             foreach (['cache','data'] as $directory) {
                 echo $directory.': '.(is_writable($config->root.'/'.$directory) ? 'writable' : 'read-only')."\n";
             }
-            echo 'PHP '.PHP_VERSION."; GD/FreeType, SQLite/RTree, XMLWriter, mbstring and iconv available.\n";
+            echo 'PHP '.PHP_VERSION."; GD/FreeType, SQLite/RTree, DOM, XMLWriter, mbstring and iconv available.\n";
             break;
         case 'validate':
+            (new PureWms\Projection($config->crs))->validate();
             foreach (glob($config->root.'/config/services/*.json') as $file) {
                 $name = basename($file, '.json');
                 $service = $config->service($name);
@@ -38,6 +39,7 @@ try {
             foreach ($config->sources as $name => $source) {
                 Config::id($name);
                 $config->sourcePath($source['file']);
+                $config->crs->get($source['crs']);
                 echo $name.': '.$source['crs']."\n";
             }
             break;

@@ -50,9 +50,7 @@ final class Dataset
         Config::id($id);
         $source = $config->sources[$id] ?? throw new \RuntimeException('Unknown dataset.');
         $path = $config->sourcePath($source['file']);
-        if (!in_array($source['crs'], Projection::OUTPUT_CRS, true)) {
-            throw new \RuntimeException('Unsupported source CRS.');
-        }
+        $config->crs->get($source['crs']);
         if (filesize($path) > 268435456) {
             throw new \RuntimeException('Source exceeds 256 MiB import limit.');
         }
@@ -69,7 +67,7 @@ final class Dataset
             $pdo->beginTransaction();
             $insert = $pdo->prepare('INSERT INTO features VALUES(?,?,?)');
             $spatial = $pdo->prepare('INSERT INTO spatial VALUES(?,?,?,?,?)');
-            $projection = new Projection();
+            $projection = new Projection($config->crs);
             $count = 0;
             $total = 0;
             $extent = null;

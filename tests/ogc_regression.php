@@ -4,7 +4,7 @@ $without_service = $base;
 unset($without_service['SERVICE']);
 check(response($without_service)[1] === response($base)[1], '7.3: SERVICE optional for GetMap');
 rejects(fn () => response(['REQUEST' => 'GetCapabilities']));
-foreach (['TIME', 'ELEVATION', 'SLD', 'SLD_BODY', 'FILTER', 'CQL_FILTER', 'REMOTE_OWS_URL', 'X-TRACE'] as $extension) {
+foreach (['TIME', 'ELEVATION', 'FILTER', 'CQL_FILTER', 'REMOTE_OWS_URL', 'X-TRACE'] as $extension) {
     check(response(array_replace($base, [$extension => 'invalid:https://localhost/private']))[1] === response($base)[1], '6.8.1: ignored extension ' . $extension);
 }
 $tiny = response(array_replace($base, ['BBOX' => '1,1,1.0000000000001,2']));

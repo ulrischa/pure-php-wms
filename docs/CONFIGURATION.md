@@ -86,7 +86,7 @@ Example combining all supported import types:
 | Property | Usage |
 |---|---|
 | `file` | Required local source filename under `sources/`; not a path traversal, URL or remote file |
-| `crs` | Explicit source CRS: `EPSG:4326`, `CRS:84`, `EPSG:3857`, `EPSG:25832` or `EPSG:25833` |
+| `crs` | Explicit source CRS registered in the built-in registry or `config/crs.json` |
 | `encoding` | Shapefile DBF character encoding (e.g. `UTF-8`, `Windows-1252`, `CP850`); defaults to UTF-8 |
 | `table` | For GeoPackage: exact simple-feature vector table name |
 
@@ -302,11 +302,11 @@ GetFeatureInfo requires `QUERY_LAYERS` (subset of the visible map layers), `I`, 
 
 Only allowed property names are returned by GetFeatureInfo, **but geometries are still present** in JSON. Queryable layers may reveal selected geometries, even when no properties are allowed. HTTP uses ETag and `Cache-Control: no-cache`; errors use WMS XML service exceptions.
 
-Unknown extension parameters such as SLD, FILTER, TIME or ELEVATION are accepted but **ignored** (not evaluated); no remote references are fetched. Supported exception format is XML only; `UPDATESEQUENCE`, XML POST and in-image exceptions are not implemented.
+Unknown extension parameters such as FILTER, TIME or ELEVATION are accepted but **ignored** (not evaluated); no remote references are fetched. Supported exception format is XML only; `UPDATESEQUENCE`, XML POST and in-image exceptions are not implemented.
 
 ## 7. Operational boundaries and common mistakes
 
-- Supported coordinates: regionally suitable EPSG:4326, CRS:84, EPSG:3857, EPSG:25832/25833; geographic latitude ±85.05112878°; no dateline wrapping or polar services.
+- Supported coordinates: regionally suitable built-in or configured CRS (including EPSG:3035); geographic latitude ±85.05112878°; no dateline wrapping or polar services.
 - Imported geometries must already be topologically valid; the importer does not repair self-intersections.
 - Geometry edges are joined between input vertices; densify long sparse edges in a GIS when accuracy matters.
 - ETRS89/WGS84 transformations are suitable for cartographic use, not epoch-accurate surveying.
@@ -320,3 +320,7 @@ After modifying source files, run `php bin/console.php import NAME`; after modif
 GetFeatureInfo applies a conservative 64-pixel spatial search radius before the actual geometry/style hit test. This radius covers the largest supported point symbol. Closest results are retained as serialized features with an aggregate 8 MiB payload budget; oversized responses produce a controlled 503. Text responses omit geometry from their retained representation. Duplicate query-layer names are processed once.
 
 Cache entries are opened before checking age/key, avoiding pathname races with cleanup. Missing or invalid entries are cache misses. Failed writes are logged and do not discard a rendered map; render admission still needs accessible `worker-*.lock` files. Do not delete lock files during operation.
+
+## CRS registry and SLD files
+
+`config/crs.json` registers additional source/output coordinate systems. `config/sld.json` maps approved SLD URL identifiers to local resources. Style JSON may wrap a local SLD file using `sld_file`, `sld_layer` and `sld_style`. See [the complete CRS/SLD reference and examples](CRS_AND_SLD.md). `SLD` and `SLD_BODY` are recognized styling parameters; unsupported SLD content is rejected, not ignored.

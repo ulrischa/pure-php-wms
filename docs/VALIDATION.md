@@ -8,13 +8,14 @@ Recorded environment: Linux, **PHP CLI 8.3.31**, GD/FreeType, PDO_SQLite with RT
 
 | Test | Recorded result |
 |---|---|
-| `php tests/run.php` | **140 checks passed** |
-| `python tests/http_smoke.py php` | **20 HTTP checks passed** |
+| `php tests/run.php` | **178 checks passed** |
+| `python tests/http_smoke.py php` | **23 HTTP checks passed** |
 | `python tests/concurrency.py php` (Linux) | **9 checks passed; 80 requests with 8 clients** |
 | PHP syntax checking | Source and tests free of syntax errors in the recorded run |
 | `composer validate --strict` | Valid manifest and lock file |
 | Composer security advisory check at install/update | No reported known advisories for pinned packages at that time |
 | GetCapabilities vs official OGC WMS 1.3.0 XSD | XML schema valid |
+| Shipped `resources/places.sld` vs official OGC SLD 1.0 XSD | XML schema valid (schema dependencies downloaded for validation) |
 | PNG visual check | Polygon fills and holes, underlying layers, lines, category markers, accented labels |
 | Regression verification | Style-rule matching and geometry size handling corrections covered by tests |
 
@@ -67,7 +68,7 @@ This is only a functional scale check, not an Apache/shared-hosting capacity for
 - CRS restricted to documented values; global or arbitrary CRS transformations are outside scope.
 - Geographic processing limited to ±180° longitude and ±85.05112878° latitude, no antimeridian crossing; UTM requests use regular supported zone extents.
 - No GeoTIFF or other raster layers, GeoPackage raster tiles, curve geometries or SQL views.
-- No SLD, remote symbology, arbitrary filters, time/elevation dimensions, WFS or WMTS. Unknown extension parameters are ignored.
+- SLD supports the [documented bounded vector profile](CRS_AND_SLD.md), not full SLD-WMS conformance. No remote symbology fetching, arbitrary filters, time/elevation dimensions, WFS or WMTS. Unknown extension parameters are ignored.
 - A published feature has at most 20,000 vertices and 1 MiB geometry JSON. No automatic geometry simplification.
 - The input dataset must be structurally and topologically appropriate. Import validates structure and safety bounds but cannot repair self-intersections.
 - Local imports are trusted administration tasks; stream processing and parser limits do not guarantee resistance to every malicious input.
@@ -89,3 +90,7 @@ Official reference XSDs are included in `tests/schemas/` for repeatable offline 
 ## Streaming and production-hardening follow-up
 
 See [PRODUCTION.md](PRODUCTION.md) for the 32 MiB SHP import, before/after memory comparison, concurrent cache deletion, render admission/recovery checks and remaining hosting-specific validation. These checks add streaming Z/M/null/deleted-record handling, malformed lengths/types, local FeatureInfo selection from a 6,000-feature map, bounded result payloads, nested property output and Mercator edge envelopes.
+
+## CRS and SLD regression coverage
+
+`tests/crs_sld.php` checks EPSG:3035 origin and inverse values, all shipped CRS roundtrips, projected source import, northing/easting WMS BBOX handling, expected rendered point pixels and feature-info hits in the requested CRS. SLD checks cover local/inline/registered-URL equivalence, filters, ElseFilter, multiple matching rules, scale bounds, polygon holes, line symbols, SE parameters, capability advertisement, legends and blocked XML entities/remote graphics. A small LAEA adapter corrects proj4php 2.0.19's inverse-origin branch; the origin regression must remain when updating that dependency. Newly configured CRS definitions still require independent reference checks for the intended region and datum.

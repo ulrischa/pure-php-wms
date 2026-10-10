@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "55568280b03ebbf172fbe822a2a72834",
+    "content-hash": "10f39db2635e5afd77da9953dbed07cb",
     "packages": [
         {
             "name": "halaxa/json-machine",
@@ -211,6 +211,7 @@
     "prefer-lowest": false,
     "platform": {
         "php": "^8.2",
+        "ext-dom": "*",
         "ext-gd": "*",
         "ext-pdo_sqlite": "*",
         "ext-xmlwriter": "*",

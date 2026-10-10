@@ -31,7 +31,7 @@ At that point **105 PHP functional checks** passed (also with a 128 MiB limit fo
 - Without a server update sequence, GetCapabilities can return its current metadata when UPDATESEQUENCE is present (Table 4).
 - EPSG:4326 uses latitude/longitude **in WMS 1.3.0 BBOX**, while CRS:84 uses longitude/latitude; the regression suite checks the equivalent maps.
 - The supplied ExtendedSecurityCapabilities schema concerns an optional later OGC security extension. It does **not** mandate login, roles or security metadata for a basic public WMS.
-- GetLegendGraphic is an intentionally limited extension. SLD, time/elevation dimensions and in-image exceptions are **not** advertised. A server is required to support the formats/capabilities it actually advertises.
+- GetLegendGraphic is an intentionally limited extension. The bounded SLD vector profile is documented separately; full SLD-WMS conformance, time/elevation dimensions and in-image exceptions are **not** advertised. A server is required to support the formats/capabilities it actually advertises.
 
 ## Remaining recommendations and release gates
 

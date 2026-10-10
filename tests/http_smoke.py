@@ -37,7 +37,7 @@ try:
         status,headers,body=request(query)
         check(status==400 and b'ServiceException' in body,'Invalid request rejected')
         check(b'/workspace/' not in body and b'Stack trace' not in body,'No internal details leaked')
-    status,headers,body=request(q.replace('SERVICE=WMS&','')+'&TIME=invalid&SLD=http%3A%2F%2Flocalhost%2Fprivate')
+    status,headers,body=request(q.replace('SERVICE=WMS&','')+'&TIME=invalid&CQL_FILTER=http%3A%2F%2Flocalhost%2Fprivate')
     check(status==200 and body.startswith(b'\x89PNG'),'Core GetMap ignores unsupported extensions without SERVICE')
     for info_format in ['application/json','text/plain']:
         iq=q.replace('REQUEST=GetMap','REQUEST=GetFeatureInfo')+'&QUERY_LAYERS=places&I=289&J=135&INFO_FORMAT='+info_format
@@ -47,6 +47,14 @@ try:
     check(status==200,'Invalid FEATURE_COUNT defaults on HTTP wire')
     status,headers,body=request(iq.replace('I=289','I=9999'))
     check(status==400 and b'code="InvalidPoint"' in body,'InvalidPoint on HTTP wire')
+    status,headers,body=request(q+'&SLD=http%3A%2F%2Flocalhost%2Fprivate')
+    check(status==400 and b'ServiceException' in body,'Unregistered SLD URL rejected without fetching')
+    sld_query=q.replace('LAYERS=land%2Croutes%2Cplaces','LAYERS=places')+'&SLD='+urllib.parse.quote('https://example.org/styles/places.sld',safe='')
+    status,headers,body=request(sld_query)
+    check(status==200 and body.startswith(b'\x89PNG'),'Registered SLD map over HTTP')
+    sld_body=(root/'resources/places.sld').read_text()
+    status,headers,body=request(q.replace('LAYERS=land%2Croutes%2Cplaces','LAYERS=places')+'&SLD_BODY='+urllib.parse.quote(sld_body,safe=''))
+    check(status==200 and body.startswith(b'\x89PNG'),'Inline SLD map over HTTP')
     print(f'Passed {checks} HTTP checks')
 finally:
     server.terminate()

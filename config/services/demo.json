@@ -1,5 +1,5 @@
 {
-  "title": "Demo — Western Munich",
+  "title": "Demo \u2014 Western Munich",
   "abstract": "Synthetic sample data for polygons, lines and places. Not official geospatial data.",
   "layers": {
     "land": {
@@ -29,7 +29,8 @@
       "title": "Places",
       "dataset": "places",
       "styles": [
-        "places"
+        "places",
+        "places_sld"
       ],
       "queryable": true,
       "query_fields": [

@@ -8,6 +8,7 @@
     "phpmyadmin/shapefile": "^4.0.1",
     "proj4php/proj4php": "^2.0",
     "halaxa/json-machine": "^1.2",
+    "ext-dom": "*",
     "ext-gd": "*",
     "ext-pdo_sqlite": "*",
     "ext-xmlwriter": "*",

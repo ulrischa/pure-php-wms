@@ -16,8 +16,8 @@ final class Renderer
     public function __construct(private readonly Config $config, public readonly array $map, private readonly Budget $budget)
     {
         $this->canvas = new Canvas($map['width'], $map['height'], $map['background']);
-        $this->projection = new Projection();
-        $units = in_array($map['crs'], ['EPSG:4326','CRS:84'], true) ? 111319.49079327358 : 1;
+        $this->projection = new Projection($config->crs);
+        $units = $config->crs->get($map['crs'])['meters_per_unit'];
         $this->scale = ($map['bbox'][2] - $map['bbox'][0]) / $map['width'] * $units / 0.00028;
     }
 
@@ -46,6 +46,8 @@ final class Renderer
         if (in_array($this->map['crs'], ['EPSG:4326','CRS:84'], true)) {
             return [max(-180, $bbox[0]),max(-85.05112878, $bbox[1]),min(180, $bbox[2]),min(85.05112878, $bbox[3])];
         }
+        $domain = $this->config->crs->get($this->map['crs'])['bounds'];
+        $bbox = [max($domain[0], $bbox[0]),max($domain[1], $bbox[1]),min($domain[2], $bbox[2]),min($domain[3], $bbox[3])];
         if ($this->map['crs'] === 'EPSG:3857') {
             // Avoid longitude normalization at the world edge wrapping an envelope.
             $limit = 20037508.342789244 - 0.001;
@@ -53,7 +55,7 @@ final class Renderer
         }
         $result = $this->projection->envelope($bbox, $this->map['crs'], 'EPSG:4326');
 
-        // Small conservative expansion compensates for finite edge sampling in UTM.
+        // Conservative margin for finite edge sampling in regional projections.
         return [$result[0] - 0.01,$result[1] - 0.01,$result[2] + 0.01,$result[3] + 0.01];
     }
 
@@ -84,6 +86,90 @@ final class Renderer
         return $style;
     }
 
+    /** JSON styles use first-match overrides; SLD applies all matching rules. */
+    public function symbolizers(array $style, array $properties): array
+    {
+        if (!isset($style['_sld_groups'])) {
+            $part = $this->symbolizer($style, $properties);
+            return $this->visible($part) ? [$part] : [];
+        }
+        $result = [];
+        foreach ($style['_sld_groups'] as $group) {
+            $matched = false;
+            foreach ($group as $rule) {
+                if (!$rule['else'] && $this->scale >= $rule['min'] && $this->scale < $rule['max'] && Sld::matches($rule['filter'], $properties)) {
+                    $matched = true;
+                    array_push($result, ...$rule['symbols']);
+                }
+            }
+            if (!$matched) {
+                foreach ($group as $rule) {
+                    if ($rule['else'] && $this->scale >= $rule['min'] && $this->scale < $rule['max']) {
+                        array_push($result, ...$rule['symbols']);
+                    }
+                }
+            }
+        }
+        return $result;
+    }
+
+    public function applies(array $geometry, array $style): bool
+    {
+        $kind = $style['_geometry'] ?? 'any';
+        if ($kind === 'any') {
+            return true;
+        }
+        if ($geometry['type'] === 'GeometryCollection') {
+            foreach ($geometry['geometries'] as $child) {
+                if ($this->applies($child, $style)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return match ($kind) {
+            'point' => in_array($geometry['type'], ['Point','MultiPoint'], true),
+            'line' => in_array($geometry['type'], ['LineString','MultiLineString','Polygon','MultiPolygon'], true),
+            'polygon' => in_array($geometry['type'], ['Polygon','MultiPolygon'], true),
+            default => false,
+        };
+    }
+
+    /** Geometry hit test that respects outline-only and transparent symbolizers. */
+    public function hitDistance(array $geometry, array $style, array $point): float
+    {
+        if (!$this->applies($geometry, $style)) {
+            return INF;
+        }
+        if ($geometry['type'] === 'GeometryCollection') {
+            $distance = INF;
+            foreach ($geometry['geometries'] as $child) {
+                $distance = min($distance, $this->hitDistance($child, $style, $point));
+            }
+            return $distance;
+        }
+        $opaque = static fn (string $color): bool => strlen($color) !== 9 || substr($color, 7) !== '00';
+        if ($style['_text_only'] ?? false) {
+            return $opaque($style['label_color'] ?? '#000000') ? Geometry::distanceTo($geometry, $point) : INF;
+        }
+        $stroke = ($style['stroke_width'] ?? 1) > 0 && $opaque($style['stroke'] ?? '#000000');
+        $fill = $opaque($style['fill'] ?? '#808080');
+        if (in_array($geometry['type'], ['Polygon','MultiPolygon'], true) && !$fill) {
+            if (!$stroke) {
+                return INF;
+            }
+            $rings = $geometry['type'] === 'Polygon' ? $geometry['coordinates'] : array_merge(...$geometry['coordinates']);
+            return Geometry::distanceTo(['type' => 'MultiLineString', 'coordinates' => $rings], $point);
+        }
+        if (in_array($geometry['type'], ['LineString','MultiLineString'], true) && !$stroke) {
+            return INF;
+        }
+        if (in_array($geometry['type'], ['Point','MultiPoint'], true) && !isset($style['icon']) && !$fill && !$stroke) {
+            return INF;
+        }
+        return Geometry::distanceTo($geometry, $point);
+    }
+
     public function visible(array $style): bool
     {
         return $this->scale >= ($style['min_scale'] ?? 0) && $this->scale < ($style['max_scale'] ?? INF);
@@ -91,25 +177,30 @@ final class Renderer
 
     public function feature(array $feature, array $base): void
     {
-        $style = $this->symbolizer($base, $feature['properties']);
-        if (!$this->visible($style)) {
+        $styles = $this->symbolizers($base, $feature['properties']);
+        if (!$styles) {
             return;
         }
         $geometry = $this->screenGeometry($feature['geometry']);
-        $this->draw($geometry, $style);
-        $field = $style['label_field'] ?? '';
-        if ($field !== '' && isset($feature['properties'][$field]) && is_scalar($feature['properties'][$field]) && count($this->labels) < 1500) {
-            $text = preg_replace('/[\x00-\x1f\x7f]/u', ' ', (string)$feature['properties'][$field]);
-            $text = mb_substr($text, 0, 80, 'UTF-8');
-            $anchor = $this->anchor($geometry);
-            if ($text !== '' && $anchor !== null) {
-                $this->labels[] = [$anchor,$text,$style];
+        foreach ($styles as $style) {
+            $this->draw($geometry, $style);
+            $field = $style['label_field'] ?? '';
+            if ($field !== '' && isset($feature['properties'][$field]) && is_scalar($feature['properties'][$field]) && count($this->labels) < 1500) {
+                $text = preg_replace('/[\x00-\x1f\x7f]/u', ' ', (string)$feature['properties'][$field]);
+                $text = mb_substr($text, 0, 80, 'UTF-8');
+                $anchor = $this->anchor($geometry);
+                if ($text !== '' && $anchor !== null) {
+                    $this->labels[] = [$anchor,$text,$style];
+                }
             }
         }
     }
 
     public function draw(array $geometry, array $style): void
     {
+        if (($style['_text_only'] ?? false) || !$this->applies($geometry, $style)) {
+            return;
+        }
         $this->budget->check();
         $type = $geometry['type'];
         $c = $geometry['coordinates'] ?? [];

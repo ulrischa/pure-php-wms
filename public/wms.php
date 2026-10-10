@@ -12,7 +12,7 @@ header('X-Content-Type-Options: nosniff');
 header('X-Request-ID: '.$request_id);
 header('Cache-Control: no-cache');
 try {
-    foreach (['gd', 'pdo_sqlite', 'xmlwriter', 'mbstring', 'iconv'] as $extension) {
+    foreach (['dom', 'gd', 'pdo_sqlite', 'xmlwriter', 'mbstring', 'iconv'] as $extension) {
         if (!extension_loaded($extension)) {
             while (ob_get_level() > $buffer_level) {
                 ob_end_clean();

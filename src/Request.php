@@ -51,7 +51,7 @@ final class Request
         return (int)$value;
     }
 
-    public function map(int $maxSide = 2048, int $maxPixels = 2097152): array
+    public function map(int $maxSide = 2048, int $maxPixels = 2097152, ?CrsRegistry $registry = null): array
     {
         if ($this->get('VERSION') !== '1.3.0') {
             throw new WmsException('Only WMS 1.3.0 is supported.', 'InvalidParameterValue');
@@ -60,9 +60,8 @@ final class Request
             throw new WmsException('Supported map format: image/png.', 'InvalidFormat');
         }
         $crs = $this->get('CRS');
-        if (!in_array($crs, Projection::OUTPUT_CRS, true)) {
-            throw new WmsException('Unsupported CRS.', 'InvalidCRS');
-        }
+        $registry ??= new CrsRegistry();
+        $definition = $registry->get($crs);
         $bbox = explode(',', $this->get('BBOX'));
         if (count($bbox) !== 4) {
             throw new WmsException('BBOX requires four numbers.');
@@ -74,20 +73,13 @@ final class Request
             $number = (float)$number;
         }
         unset($number);
-        if ($crs === 'EPSG:4326') {
-            $bbox = [$bbox[1], $bbox[0], $bbox[3], $bbox[2]];
-        }
+        $bbox = $registry->wmsBounds($bbox, $crs);
         if ($bbox[0] >= $bbox[2] || $bbox[1] >= $bbox[3]) {
             throw new WmsException('BBOX must have positive width and height; antimeridian wrapping is unsupported.');
         }
-        if (in_array($crs, ['EPSG:4326','CRS:84'], true) && ($bbox[0] < -180 || $bbox[2] > 180 || $bbox[1] < -90 || $bbox[3] > 90)) {
-            throw new WmsException('Geographic BBOX is outside the valid range.');
-        }
-        if ($crs === 'EPSG:3857' && (min($bbox) < -20037508.35 || max($bbox) > 20037508.35)) {
-            throw new WmsException('Mercator BBOX exceeds the supported world extent.');
-        }
-        if (in_array($crs, ['EPSG:25832','EPSG:25833'], true) && ($bbox[0] < 100000 || $bbox[2] > 900000 || $bbox[1] < 0 || $bbox[3] > 10000000)) {
-            throw new WmsException('UTM BBOX is outside its supported zone domain.');
+        $domain = $definition['bounds'];
+        if ($bbox[0] < $domain[0] || $bbox[1] < $domain[1] || $bbox[2] > $domain[2] || $bbox[3] > $domain[3]) {
+            throw new WmsException('BBOX is outside the configured CRS domain.');
         }
         $width = $this->integer('WIDTH', 1, $maxSide);
         $height = $this->integer('HEIGHT', 1, $maxSide);

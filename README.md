@@ -13,22 +13,22 @@ Georeferencing is supplied by the WMS request's `CRS`, `BBOX`, `WIDTH` and `HEIG
 | Area | Current support |
 |---|---|
 | WMS operations | `GetCapabilities`, `GetMap`, `GetFeatureInfo` (WMS **1.3.0 only**, HTTP GET) |
-| Additional operation | `GetLegendGraphic` for configured local styles; not a full SLD service |
+| Additional operation | `GetLegendGraphic` for JSON and supported SLD styles |
 | Vector sources | ESRI Shapefile/DBF, GeoJSON FeatureCollection, GeoPackage simple-feature vector tables |
 | Geometry | Point, line, polygon (including holes), multipart geometry and supported GeometryCollections |
-| Projection | `EPSG:4326`, `CRS:84`, `EPSG:3857`, `EPSG:25832`, `EPSG:25833` |
+| Projection | Built-in CRS plus configurable definitions; EPSG:3035 included; on-the-fly reprojection |
 | Output | PNG, transparent or solid background, selected layer order; feature information in GeoJSON-compatible JSON or plain text |
 | Symbology | Fills, strokes, transparency, point shapes, local PNG icons, reusable named styles, per-attribute rules |
 | Labels | Local TrueType fonts, UTF-8 text, color, halo, simple collision avoidance and scale limits |
 | Performance | One SQLite database/RTree per dataset, bounded file cache, revision-aware invalidation, concurrent-render limits |
 | Administration | Human-editable JSON; an explicit CLI import step; no public upload endpoint or web admin |
 
-**Not supported:** raster/GeoTIFF layers, WFS/WMTS, remote sources, SLD uploads, arbitrary EPSG definitions, JPEG maps, curve geometries, antimeridian or polar processing. This is a **regional, resource-bounded vector map service**, not a replacement for a full-featured GIS server. It is **not OGC certified**; see [the actual tests and remaining checks](docs/VALIDATION.md).
+**Not supported:** raster/GeoTIFF layers, WFS/WMTS, remote sources, persistent SLD uploads, automatic EPSG lookup, JPEG maps, curve geometries, antimeridian or polar processing. This is a **regional, resource-bounded vector map service**, not a replacement for a full-featured GIS server. It is **not OGC certified**; see [the actual tests and remaining checks](docs/VALIDATION.md).
 
 ## 2. Requirements and download
 
 - Apache 2.4 and **64-bit PHP 8.2 or later**.
-- PHP extensions: **GD with FreeType**, **PDO_SQLite with SQLite RTree**, **XMLWriter**, **mbstring**, **iconv**.
+- PHP extensions: **GD with FreeType**, **PDO_SQLite with SQLite RTree**, **DOM**, **XMLWriter**, **mbstring**, **iconv**.
 - Recommended hosting limits: `memory_limit=256M` or more and `max_execution_time` at least 20 seconds for map requests. Actual requirements depend on your data.
 - A complete **distribution ZIP** contains `vendor/` and pre-imported sample SQLite databases. **Composer and SSH are not required on the hosting account** for the packaged demo.
 - If you **clone the source repository**, install the locked dependencies using Composer locally first: `composer install --no-dev --prefer-dist`. Do not assume that a Git checkout includes `vendor/`.
@@ -43,6 +43,8 @@ php bin/console.php list
 ```
 
 The first command checks extensions, fonts, SQLite RTree and directory permissions. The second validates service/style/source configuration; the third reports published dataset metadata.
+
+See [coordinate systems, on-the-fly reprojection and SLD](docs/CRS_AND_SLD.md) for adding EPSG definitions, axis order, local SLD files and request styles.
 
 ## 3. Installation in five steps
 
@@ -268,7 +270,7 @@ Values in a matching `symbolizer` **override** the base style; non-overridden pr
 
 **Alternative styles and zoom visibility:** create `normal.json` and `high_contrast.json` and list both in the layer's `"styles": ["normal", "high_contrast"]`. The first is the default. To show a style only when zoomed in, set `"max_scale": 250000` (visible while scale denominator is **less than** 250000); `min_scale` is inclusive. This is based on the WMS standard 0.28 mm pixel model, not real-world terrain scale.
 
-**Legends:** `GetLegendGraphic&LAYER=protected_areas&FORMAT=image/png` creates a legend from the style and class rules. It does not accept arbitrary SLD. See the [complete field-by-field reference](docs/CONFIGURATION.md) for all defaults, label limitations and precedence.
+**Legends:** `GetLegendGraphic&LAYER=protected_areas&FORMAT=image/png` creates a legend from the style and class rules. A bounded OGC SLD vector profile is also supported. See the [complete field-by-field reference](docs/CONFIGURATION.md) for all defaults, label limitations and precedence.
 
 ## 8. Files, tools and update workflow
 

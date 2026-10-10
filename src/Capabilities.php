@@ -49,7 +49,7 @@ final class Capabilities
         $xml->startElement('Layer');
         $xml->writeAttribute('queryable', '0');
         $xml->writeElement('Title', $service['title']);
-        foreach (Projection::OUTPUT_CRS as $crs) {
+        foreach ($config->crs->codes() as $crs) {
             $xml->writeElement('CRS', $crs);
         }
         $union = [INF, INF, -INF, -INF];
@@ -73,7 +73,7 @@ final class Capabilities
                 $xml->writeElement('Title', $style['title'] ?? $styleId);
                 $xml->startElement('LegendURL');
                 $xml->writeAttribute('width', '260');
-                $xml->writeAttribute('height', (string)(40 * (1 + count($style['rules'] ?? []))));
+                $xml->writeAttribute('height', (string)(40 * (isset($style['_sld_groups']) ? array_sum(array_map('count', $style['_sld_groups'])) : 1 + count($style['rules'] ?? []))));
                 $xml->writeElement('Format', 'image/png');
                 self::online($xml, $config->server['base_url'] . '?' . http_build_query(['MAP' => $id,'SERVICE' => 'WMS','VERSION' => '1.3.0','REQUEST' => 'GetLegendGraphic','LAYER' => $name,'STYLE' => $styleId,'FORMAT' => 'image/png'], '', '&', PHP_QUERY_RFC3986));
                 $xml->endElement();

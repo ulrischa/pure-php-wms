@@ -17,7 +17,7 @@ final class Server
         if ($request->get('SERVICE', $operation === 'GetCapabilities' ? null : 'WMS') !== 'WMS') {
             throw new WmsException('SERVICE must be WMS.');
         }
-        // Unknown extension parameters are ignored; no remote styles or URLs are evaluated.
+        // Unknown extension parameters are ignored. SLD resources are strictly local.
         if (!in_array($operation, ['GetCapabilities','GetMap','GetFeatureInfo','GetLegendGraphic'], true)) {
             throw new WmsException('Unsupported operation.', 'OperationNotSupported');
         }
@@ -42,15 +42,11 @@ final class Server
         if ($operation === 'GetLegendGraphic') {
             return $this->legend($request, $service);
         }
-        $map = $request->map($this->config->server['max_side'], $this->config->server['max_pixels']);
+        $map = $request->map($this->config->server['max_side'], $this->config->server['max_pixels'], $this->config->crs);
         $styles = [];
         foreach ($map['layers'] as $i => $name) {
             $layer = $service['layers'][$name] ?? throw new WmsException('Unknown layer: ' . $name, 'LayerNotDefined');
-            $styleId = $map['styles'][$i] ?: $layer['styles'][0];
-            if (!in_array($styleId, $layer['styles'], true)) {
-                throw new WmsException('Unknown style for layer: ' . $name, 'StyleNotDefined');
-            }
-            $styles[] = $this->config->style($styleId);
+            $styles[] = $this->requestedStyle($request, $name, $layer, $map['styles'][$i]);
         }
         $datasets = [];
         foreach ($map['layers'] as $name) {
@@ -64,7 +60,7 @@ final class Server
         }
         $resources = [];
         foreach ($styles as $style) {
-            foreach (array_merge([$style], array_column($style['rules'] ?? [], 'symbolizer')) as $part) {
+            foreach (Config::styleParts($style) as $part) {
                 foreach (['font' => 'ttf','icon' => 'png'] as $key => $ext) {
                     $name = $part[$key] ?? ($key === 'font' ? 'DejaVuSans.ttf' : null);
                     if ($name !== null) {
@@ -74,7 +70,7 @@ final class Server
                 }
             }
         }
-        $key = hash('sha256', json_encode(['renderer' => 2,'map' => $map,'styles' => $styles,'service' => $service,'datasets' => $revisions,'resources' => $resources], JSON_THROW_ON_ERROR));
+        $key = hash('sha256', json_encode(['renderer' => 3, 'crs_definitions' => $this->config->crs->definitions,'map' => $map,'styles' => $styles,'service' => $service,'datasets' => $revisions,'resources' => $resources], JSON_THROW_ON_ERROR));
         if ($operation === 'GetMap' && ($cached = $cache->read($key)) !== null) {
             return ['image/png',$cached,0];
         }
@@ -88,9 +84,15 @@ final class Server
             }
             foreach ($map['layers'] as $i => $name) {
                 $layer = $service['layers'][$name];
-                foreach ($datasets[$layer['dataset']]->query($bbox, $this->config->server['max_features']) as $feature) {
-                    $budget->check();
-                    $renderer->feature($feature, $styles[$i]);
+                // Each FeatureTypeStyle is a separate painter's pass over the layer.
+                $passes = isset($styles[$i]['_sld_groups'])
+                    ? array_map(static fn ($group) => ['_sld_groups' => [$group]], $styles[$i]['_sld_groups'])
+                    : [$styles[$i]];
+                foreach ($passes as $pass) {
+                    foreach ($datasets[$layer['dataset']]->query($bbox, $this->config->server['max_features']) as $feature) {
+                        $budget->check();
+                        $renderer->feature($feature, $pass);
+                    }
                 }
             }
             $renderer->labels();
@@ -143,15 +145,24 @@ final class Server
             $matches = [];
             $matchBytes = 0;
             foreach ($datasets[$layer['dataset']]->query($bbox, $this->config->server['max_features']) as $feature) {
-                $style = $renderer->symbolizer($styles[$i], $feature['properties']);
-                if (!$renderer->visible($style)) {
+                $matchedStyles = $renderer->symbolizers($styles[$i], $feature['properties']);
+                if (!$matchedStyles) {
                     continue;
                 }
                 $geometry = $renderer->screenGeometry($feature['geometry']);
                 $pointType = in_array($geometry['type'], ['Point','MultiPoint'], true);
-                $tolerance = $pointType ? max(5, ($style['size'] ?? 12) / 2) : max(3, ($style['stroke_width'] ?? 1) / 2 + 2);
-                $distance = Geometry::distanceTo($geometry, [$x + 0.5,$y + 0.5]);
-                if ($distance > $tolerance) {
+                $distance = INF;
+                foreach ($matchedStyles as $style) {
+                    if (($style['_text_only'] ?? false) && (!isset($feature['properties'][$style['label_field']]) || !is_scalar($feature['properties'][$style['label_field']]) || (string)$feature['properties'][$style['label_field']] === '')) {
+                        continue;
+                    }
+                    $tolerance = $pointType ? max(5, ($style['size'] ?? 12) / 2) : max(3, ($style['stroke_width'] ?? 1) / 2 + 2);
+                    $candidate = $renderer->hitDistance($geometry, $style, [$x + 0.5,$y + 0.5]);
+                    if ($candidate <= $tolerance) {
+                        $distance = min($distance, $candidate);
+                    }
+                }
+                if (!is_finite($distance)) {
                     continue;
                 }
                 $feature['properties'] = array_intersect_key($feature['properties'], array_flip($layer['query_fields']));
@@ -193,6 +204,35 @@ final class Server
         return ['text/plain',$text ?: "No matching features.\n",0];
     }
 
+    private function requestedStyle(Request $request, string $name, array $layer, string $styleName): array
+    {
+        $body = $request->get('SLD_BODY', '');
+        $url = $request->get('SLD', '');
+        if ($body !== '' && $url !== '') {
+            throw new WmsException('Use SLD or SLD_BODY, not both.');
+        }
+        if ($url !== '') {
+            $path = $this->config->root . '/config/sld.json';
+            $registered = is_file($path) ? Config::json($path) : [];
+            if (!isset($registered[$url]) || !is_string($registered[$url])) {
+                throw new WmsException('SLD URL is not registered in config/sld.json. Remote fetching is disabled.');
+            }
+            $body = $this->config->sldFile($registered[$url]);
+        }
+        if ($body !== '') {
+            $style = $this->config->sldStyle($body, $name, $styleName);
+            if (!isset($style['_named_style'])) {
+                return $style;
+            }
+            $styleName = $style['_named_style'];
+        }
+        $id = $styleName !== '' ? $styleName : $layer['styles'][0];
+        if (!in_array($id, $layer['styles'], true)) {
+            throw new WmsException('Unknown style for layer: ' . $name, 'StyleNotDefined');
+        }
+        return $this->config->style($id);
+    }
+
     private function dataset(string $id): Dataset
     {
         return new Dataset($this->config->root . '/data/' . $id . '.sqlite');
@@ -204,26 +244,33 @@ final class Server
             throw new WmsException('Supported format: image/png.', 'InvalidFormat');
         }
         $layer = $service['layers'][$request->get('LAYER')] ?? throw new WmsException('Unknown legend layer.', 'LayerNotDefined');
-        $id = $request->get('STYLE', $layer['styles'][0]);
-        if (!in_array($id, $layer['styles'], true)) {
-            throw new WmsException('Unknown legend style.', 'StyleNotDefined');
-        }
-        $style = $this->config->style($id);
+        $id = $request->get('STYLE', '');
+        $style = $this->requestedStyle($request, $request->get('LAYER'), $layer, $id);
         $entries = [[$style,$style['title'] ?? $id]];
         foreach ($style['rules'] ?? [] as $rule) {
             $entries[] = [array_replace($style, $rule['symbolizer']),(string)$rule['equals']];
+        }
+        if (isset($style['_sld_groups'])) {
+            $entries = [];
+            foreach ($style['_sld_groups'] as $group) {
+                foreach ($group as $rule) {
+                    $entries[] = [$rule['symbols'], $rule['title']];
+                }
+            }
         }
         $map = ['width' => 260,'height' => 40 * count($entries),'background' => '#ffffff00','bbox' => [0,0,260,40 * count($entries)],'crs' => 'CRS:84'];
         $renderer = new Renderer($this->config, $map, new Budget($this->config->server));
         foreach ($entries as $i => [$symbolizer,$title]) {
             $y = 20 + 40 * $i;
-            $symbolizer['size'] = min(26, $symbolizer['size'] ?? 16);
-            $geometry = match ($style['legend_geometry'] ?? 'point') {
-                'polygon' => ['type' => 'Polygon','coordinates' => [[[8,$y - 10],[38,$y - 10],[38,$y + 10],[8,$y + 10],[8,$y - 10]]]],
-                'line' => ['type' => 'LineString','coordinates' => [[8,$y + 5],[20,$y - 5],[38,$y + 2]]],
-                default => ['type' => 'Point','coordinates' => [23,$y]],
-            };
-            $renderer->draw($geometry, $symbolizer);
+            foreach (isset($style['_sld_groups']) ? $symbolizer : [$symbolizer] as $symbolizer) {
+                $symbolizer['size'] = min(26, $symbolizer['size'] ?? 16);
+                $geometry = match ($symbolizer['_geometry'] ?? $style['legend_geometry'] ?? 'point') {
+                    'polygon' => ['type' => 'Polygon','coordinates' => [[[8,$y - 10],[38,$y - 10],[38,$y + 10],[8,$y + 10],[8,$y - 10]]]],
+                    'line' => ['type' => 'LineString','coordinates' => [[8,$y + 5],[20,$y - 5],[38,$y + 2]]],
+                    default => ['type' => 'Point','coordinates' => [23,$y]],
+                };
+                $renderer->draw($geometry, $symbolizer);
+            }
             imagettftext($renderer->canvas->image, 10, 0, 48, $y + 4, $renderer->canvas->color('#233c42'), $this->config->resource('DejaVuSans.ttf', 'ttf'), mb_substr($title, 0, 30));
         }
 

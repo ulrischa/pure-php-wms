@@ -8,6 +8,7 @@ final class Config
 {
     public readonly array $server;
     public readonly array $sources;
+    public readonly CrsRegistry $crs;
 
     public function __construct(public readonly string $root)
     {
@@ -16,6 +17,7 @@ final class Config
         }
         $this->server = self::json($root . '/config/server.json');
         $this->sources = self::json($root . '/config/sources.json');
+        $this->crs = new CrsRegistry(is_file($root . '/config/crs.json') ? self::json($root . '/config/crs.json') : []);
         self::id($this->server['default_service'] ?? '');
         if (!is_array($this->server['cors_origins'] ?? [])) {
             throw new \RuntimeException('cors_origins must be an array.');
@@ -100,6 +102,17 @@ final class Config
     {
         self::id($id);
         $style = self::json($this->root . '/config/styles/' . $id . '.json');
+        if (isset($style['sld_file'])) {
+            if (array_diff(array_keys($style), ['sld_file','sld_layer','sld_style'])) {
+                throw new \RuntimeException('SLD wrappers cannot contain JSON symbolizer overrides.');
+            }
+            $xml = $this->sldFile($style['sld_file']);
+            $compiled = $this->sldStyle($xml, $style['sld_layer'] ?? '', $style['sld_style'] ?? '');
+            if (isset($compiled['_named_style'])) {
+                throw new \RuntimeException('Configured SLD files must contain a UserStyle.');
+            }
+            return $compiled;
+        }
         $this->validateSymbolizer($style);
         if (count($style['rules'] ?? []) > 32) {
             throw new \RuntimeException('Maximum 32 style rules.');
@@ -112,6 +125,47 @@ final class Config
         }
 
         return $style;
+    }
+
+    public function sldFile(string $name): string
+    {
+        $path = $this->resource($name, 'sld');
+        $xml = file_get_contents($path, false, null, 0, 131073);
+        if ($xml === false || strlen($xml) > 131072) {
+            throw new WmsException('Cannot read SLD or document exceeds 128 KiB.');
+        }
+        return $xml;
+    }
+
+    public function sldStyle(string $xml, string $layer, string $name = ''): array
+    {
+        $style = Sld::style($xml, $layer, $name);
+        foreach (self::styleParts($style) as $part) {
+            foreach (['font' => 'ttf', 'icon' => 'png'] as $key => $extension) {
+                if (isset($part[$key])) {
+                    try {
+                        $this->resource($part[$key], $extension);
+                    } catch (\RuntimeException $error) {
+                        throw new WmsException('SLD graphics and fonts must name existing local resources.');
+                    }
+                }
+            }
+        }
+        return $style;
+    }
+
+    public static function styleParts(array $style): array
+    {
+        if (!isset($style['_sld_groups'])) {
+            return array_merge([$style], array_column($style['rules'] ?? [], 'symbolizer'));
+        }
+        $parts = [];
+        foreach ($style['_sld_groups'] as $group) {
+            foreach ($group as $rule) {
+                array_push($parts, ...$rule['symbols']);
+            }
+        }
+        return $parts;
     }
 
     private function validateSymbolizer(array $style): void

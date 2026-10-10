@@ -68,7 +68,7 @@ foreach (['config/services', 'config/styles', 'data', 'cache', 'resources'] as $
     mkdir($isolated_root . '/' . $directory, 0700, true);
 }
 try {
-    foreach (['config/server.json', 'config/sources.json', 'config/services/demo.json', 'resources/DejaVuSans.ttf', 'data/places.sqlite'] as $file) {
+    foreach (['config/server.json', 'config/sources.json', 'config/services/demo.json', 'resources/DejaVuSans.ttf', 'resources/places.sld', 'data/places.sqlite'] as $file) {
         copy(dirname(__DIR__) . '/' . $file, $isolated_root . '/' . $file);
     }
     foreach (glob(dirname(__DIR__) . '/config/styles/*.json') as $file) {

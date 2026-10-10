@@ -16,7 +16,7 @@ Neither option needs a persistent PHP worker, Node.js, GDAL or MapServer.
 
 ## 2. Verify PHP and acquire the files
 
-You need Apache 2.4, **64-bit PHP 8.2+**, and the extensions `gd` **with FreeType**, `pdo_sqlite` **with RTree**, `xmlwriter`, `mbstring` and `iconv`. A reasonable starting point is `memory_limit=256M` and `max_execution_time >= 20` seconds for HTTP maps. Adjust based on actual hosting tests.
+You need Apache 2.4, **64-bit PHP 8.2+**, and the extensions `gd` **with FreeType**, `pdo_sqlite` **with RTree**, `dom`, `xmlwriter`, `mbstring` and `iconv`. A reasonable starting point is `memory_limit=256M` and `max_execution_time >= 20` seconds for HTTP maps. Adjust based on actual hosting tests.
 
 The **distribution ZIP**, when provided, includes `vendor/` and prepared synthetic demo datasets. It can be uploaded with FTP and run without Composer on the host. A raw **Git checkout does not necessarily include `vendor/`**; prepare dependencies on your own computer with:
 
@@ -254,3 +254,7 @@ All commands use `php bin/console.php COMMAND` in the project root. There is int
 See [VALIDATION.md](docs/VALIDATION.md) for scope, budgets, tests and remaining production checks.
 
 For concurrency, monitoring, upgrade steps and measured resource use, see [Production operation](docs/PRODUCTION.md).
+
+## Additional coordinate systems and SLD
+
+See [CRS and SLD](docs/CRS_AND_SLD.md) for adding source/output CRS definitions, WMS axis order and publishing standard XML styles. DOM is required; no additional native GIS extension is needed.
