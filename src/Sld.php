@@ -70,8 +70,8 @@ final class Sld
             self::children($group, ['Name','Title','Abstract','Description','Rule']);
             $rules = [];
             foreach (self::all($group, 'Rule') as $rule) {
-                if (++$ruleCount > 32) {
-                    throw new WmsException('At most 32 SLD rules.');
+                if (++$ruleCount > 64) {
+                    throw new WmsException('At most 64 SLD rules.');
                 }
                 self::children($rule, ['Name','Title','Abstract','Description','Filter','ElseFilter','MinScaleDenominator','MaxScaleDenominator','PointSymbolizer','LineSymbolizer','PolygonSymbolizer','TextSymbolizer']);
                 $filter = self::one($rule, 'Filter');
@@ -93,7 +93,7 @@ final class Sld
                 if ($min >= $max) {
                     throw new WmsException('SLD scale range must have positive extent.');
                 }
-                $rules[] = ['filter' => $filter ? self::filter($filter) : null, 'else' => $else, 'min' => $min, 'max' => $max, 'symbols' => $symbols, 'title' => self::value($rule, 'Title', self::value($rule, 'Name', 'Rule'))];
+                $rules[] = ['name' => self::value($rule, 'Name', 'rule_' . ($ruleCount - 1)), 'filter' => $filter ? self::filter($filter) : null, 'else' => $else, 'min' => $min, 'max' => $max, 'symbols' => $symbols, 'title' => self::value($rule, 'Title', self::value($rule, 'Name', 'Rule'))];
             }
             if (!$rules) {
                 throw new WmsException('SLD FeatureTypeStyle requires rules.');
@@ -114,7 +114,7 @@ final class Sld
             throw new WmsException('Symbolizer units/version overrides are unsupported.');
         }
         if ($kind === 'TextSymbolizer') {
-            self::children($node, ['Label','Font','Fill','Halo']);
+            self::children($node, ['Label','Font','LabelPlacement','Fill','Halo']);
             $label = self::one($node, 'Label', true);
             self::children($label, ['PropertyName']);
             $style['label_field'] = self::value($label, 'PropertyName');
@@ -129,6 +129,29 @@ final class Sld
             $style['font'] = $family === 'DejaVu Sans' ? 'DejaVuSans.ttf' : $family;
             // SLD font size is pixels; GD FreeType accepts points at 96 DPI.
             $style['font_size'] = self::number($font['font-size'] ?? '14.6666667', 8, 64) * 0.75;
+            $placement = self::one($node, 'LabelPlacement');
+            if ($placement !== null) {
+                self::children($placement, ['PointPlacement','LinePlacement']);
+                $point = self::one($placement, 'PointPlacement');
+                $line = self::one($placement, 'LinePlacement');
+                if (($point === null) === ($line === null)) { throw new WmsException('Select one label placement.'); }
+                $style['label_anchor'] = [0.5,0.5];
+                $style['label_offset'] = [0,0];
+                if ($line !== null) {
+                    self::children($line, []);
+                    $style['label_follow_line'] = true;
+                } else {
+                    self::children($point, ['AnchorPoint','Displacement','Rotation']);
+                    $style['label_angle'] = -self::number(self::value($point, 'Rotation', '0'), -360, 360);
+                    foreach (['AnchorPoint' => ['label_anchor','AnchorPointX','AnchorPointY',0,1], 'Displacement' => ['label_offset','DisplacementX','DisplacementY',-256,256]] as $element => $settings) {
+                        $part = self::one($point, $element);
+                        if ($part !== null) {
+                            self::children($part, [$settings[1],$settings[2]]);
+                            $style[$settings[0]] = [self::number(self::value($part, $settings[1]), $settings[3], $settings[4]), self::number(self::value($part, $settings[2]), $settings[3], $settings[4])];
+                        }
+                    }
+                }
+            }
             $halo = self::one($node, 'Halo');
             $style['halo'] = 0;
             if ($halo !== null) {
@@ -186,7 +209,7 @@ final class Sld
 
     private static function paint(?\DOMElement $node, string $kind, string $default): array
     {
-        $allowed = $kind === 'fill' ? ['fill','fill-opacity'] : ['stroke','stroke-opacity','stroke-width'];
+        $allowed = $kind === 'fill' ? ['fill','fill-opacity'] : ['stroke','stroke-opacity','stroke-width','stroke-dasharray'];
         $parameters = self::parameters($node, $allowed);
         $color = $parameters[$kind] ?? $default;
         if (!preg_match('/^#[a-fA-F0-9]{6}$/D', $color)) {
@@ -195,6 +218,11 @@ final class Sld
         $result = [$kind => self::opacity($color, self::number($parameters[$kind . '-opacity'] ?? '1', 0, 1))];
         if ($kind === 'stroke') {
             $result['stroke_width'] = (int)round(self::number($parameters['stroke-width'] ?? '1', 0, 16));
+            if (isset($parameters['stroke-dasharray'])) {
+                $values = preg_split('/[ ,]+/', trim($parameters['stroke-dasharray']));
+                if (!$values || count($values) > 16) { throw new WmsException('At most 16 dash lengths.'); }
+                $result['stroke_dasharray'] = array_map(static fn ($value) => (int)round(self::number($value, 1, 128)), $values);
+            }
         }
         return $result;
     }
@@ -234,13 +262,24 @@ final class Sld
             }
             return ['op' => $operator, 'args' => array_map(static fn ($child) => self::filter($child, $depth + 1), $children)];
         }
-        if (!in_array($operator, ['PropertyIsEqualTo','PropertyIsNotEqualTo','PropertyIsLessThan','PropertyIsLessThanOrEqualTo','PropertyIsGreaterThan','PropertyIsGreaterThanOrEqualTo','PropertyIsNull'], true)) {
+        if (!in_array($operator, ['PropertyIsEqualTo','PropertyIsNotEqualTo','PropertyIsLessThan','PropertyIsLessThanOrEqualTo','PropertyIsGreaterThan','PropertyIsGreaterThanOrEqualTo','PropertyIsNull','PropertyIsLike'], true)) {
             throw new WmsException('Unsupported SLD filter: ' . $operator);
         }
         if ($node->hasAttribute('matchCase') && !in_array($node->getAttribute('matchCase'), ['true','1'], true)) {
             throw new WmsException('Only case-sensitive SLD comparisons are supported.');
         }
         self::children($node, $operator === 'PropertyIsNull' ? ['PropertyName'] : ['PropertyName','Literal']);
+        if ($operator === 'PropertyIsLike') {
+            $like = [];
+            foreach (['wildCard','singleChar','escapeChar'] as $attribute) {
+                $like[$attribute] = $node->getAttribute($attribute);
+                if (strlen($like[$attribute]) !== 1) { throw new WmsException('Like filter requires single-byte wildcard, singleChar and escapeChar.'); }
+            }
+            if (count(array_unique($like)) !== 3) { throw new WmsException('Like control characters must be distinct.'); }
+            $literal = self::value($node, 'Literal');
+            if (strlen($literal) > 256) { throw new WmsException('Like pattern exceeds 256 bytes.'); }
+            return ['op' => $operator, 'field' => self::value($node, 'PropertyName'), 'value' => $literal, 'like' => $like];
+        }
         return ['op' => $operator, 'field' => self::value($node, 'PropertyName'), 'value' => $operator === 'PropertyIsNull' ? null : self::value($node, 'Literal')];
     }
 
@@ -262,6 +301,21 @@ final class Sld
             return false;
         }
         $expected = $filter['value'];
+        if ($op === 'PropertyIsLike') {
+            $pattern = '';
+            $escaped = false;
+            foreach (str_split($expected) as $character) {
+                if ($escaped) { $pattern .= preg_quote($character, '~'); $escaped = false; }
+                elseif ($character === $filter['like']['escapeChar']) { $escaped = true; }
+                elseif ($character === $filter['like']['wildCard']) { $pattern .= '.*'; }
+                elseif ($character === $filter['like']['singleChar']) { $pattern .= '.'; }
+                else { $pattern .= preg_quote($character, '~'); }
+            }
+            if ($escaped) { $pattern .= preg_quote($filter['like']['escapeChar'], '~'); }
+            $matched = preg_match('~(*LIMIT_MATCH=100000)(*LIMIT_DEPTH=1000)\A' . $pattern . '\z~us', (string)$value);
+            if ($matched === false) { throw new WmsException('Like filter exceeds pattern evaluation limits.'); }
+            return $matched === 1;
+        }
         $compare = is_numeric($value) && is_numeric($expected) ? ((float)$value <=> (float)$expected) : strcmp((string)$value, $expected);
         return match ($op) {
             'PropertyIsEqualTo' => $compare === 0, 'PropertyIsNotEqualTo' => $compare !== 0,

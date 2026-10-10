@@ -13,14 +13,14 @@ Georeferencing is supplied by the WMS request's `CRS`, `BBOX`, `WIDTH` and `HEIG
 | Area | Current support |
 |---|---|
 | WMS operations | `GetCapabilities`, `GetMap`, `GetFeatureInfo` (WMS **1.3.0 only**, HTTP GET) |
-| Additional operation | `GetLegendGraphic` for JSON and supported SLD styles |
+| Additional operation | `GetStyles`, scale/context-controlled `GetLegendGraphic` |
 | Vector sources | ESRI Shapefile/DBF, GeoJSON FeatureCollection, GeoPackage simple-feature vector tables |
 | Geometry | Point, line, polygon (including holes), multipart geometry and supported GeometryCollections |
 | Projection | Built-in CRS plus configurable definitions; EPSG:3035 included; on-the-fly reprojection |
 | Output | PNG, transparent or solid background, selected layer order; feature information in GeoJSON-compatible JSON or plain text |
 | Symbology | Fills, strokes, transparency, point shapes, local PNG icons, reusable named styles, per-attribute rules |
 | Labels | Local TrueType fonts, UTF-8 text, color, halo, simple collision avoidance and scale limits |
-| Performance | One SQLite database/RTree per dataset, bounded file cache, revision-aware invalidation, concurrent-render limits |
+| Performance | One SQLite database/RTree per dataset, byte/count-bounded file cache, prepared overviews, revision-aware invalidation, duplicate-render protection |
 | Administration | Human-editable JSON; an explicit CLI import step; no public upload endpoint or web admin |
 
 **Not supported:** raster/GeoTIFF layers, WFS/WMTS, remote sources, persistent SLD uploads, automatic EPSG lookup, JPEG maps, curve geometries, antimeridian or polar processing. This is a **regional, resource-bounded vector map service**, not a replacement for a full-featured GIS server. It is **not OGC certified**; see [the actual tests and remaining checks](docs/VALIDATION.md).
@@ -303,13 +303,13 @@ CLI reference:
 
 ## 9. Production settings and privacy
 
-The included `config/server.json` starts with `MAP=demo`, `max_side=2048`, `max_pixels=2097152`, `max_features=5000`, `max_vertices=250000`, `max_seconds=10`, `max_parallel=3`, `cache_slots=64` and `cache_ttl=3600`. Values have validation ranges; consult [the configuration reference](docs/CONFIGURATION.md) before raising them.
+The included `config/server.json` starts with `MAP=demo`, `max_side=2048`, `max_pixels=2097152`, `max_features=5000`, `max_vertices=250000`, `max_seconds=10`, `max_parallel=3`, `cache_slots=256` and `cache_ttl=3600`. Values have validation ranges; consult [the configuration reference](docs/CONFIGURATION.md) before raising them.
 
 - Publish only `public/` where possible. No source, config, dataset, vendor, font or cache file should be directly downloadable.
 - `cors_origins: ["*"]` permits cross-origin public browser GETs **without credentials**; CORS is **not authentication**. Use Apache access controls for private services.
 - `query_fields` explicitly limits **properties** in feature-info responses, but the selected feature **geometry** is included; do not publish sensitive geometries.
 - WMS query strings are capped at 8192 bytes, remote URLs are never fetched and uploads are not exposed.
-- The PNG cache is **file-count-limited, not byte-quota-limited**. Lower `cache_slots` and `max_pixels` on constrained hosting.
+- The PNG cache limits both file count and completed-entry bytes (`cache_max_bytes`, default 64 MiB). Leave extra space for temporary writes and locks.
 
 ## 10. Troubleshooting and limitations
 
@@ -349,3 +349,7 @@ The streaming importer was tested with a **32 MiB Shapefile containing 2.1 milli
 GetFeatureInfo uses a pixel-local spatial query and limits retained result payloads to 8 MiB. Map requests open only the datasets of selected layers; legends do not open data files. Cache reads tolerate concurrent cache cleanup, and failed cache writes are logged while a successfully rendered map is still returned. A writable cache/lock directory remains required for render admission control.
 
 See [production checks and reproducible measurements](docs/PRODUCTION.md) before deploying to your hosting account.
+
+## Overview data, style export and operational controls
+
+See [the operations and style-service guide](docs/OPERATIONS_AND_STYLES.md) for prepared overview datasets, GetStyles, scale/content-based legends, dashed lines, label placement, cache quotas and structured diagnostics. Run `php bin/console.php doctor --json --deep` before deployment. External client checks use test-only OpenLayers and Leaflet dependencies; Node is not needed to host this server.

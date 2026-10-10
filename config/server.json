@@ -7,9 +7,11 @@
   "max_vertices": 250000,
   "max_seconds": 10,
   "max_parallel": 3,
-  "cache_slots": 64,
+  "cache_slots": 256,
   "cache_ttl": 3600,
   "cors_origins": [
     "*"
-  ]
+  ],
+  "cache_max_bytes": 67108864,
+  "log_requests": false
 }

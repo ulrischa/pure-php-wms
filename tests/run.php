@@ -194,4 +194,5 @@ try {
 require __DIR__ . "/ogc_regression.php";
 require __DIR__ . "/hardening.php";
 require __DIR__ . "/crs_sld.php";
+require __DIR__ . "/extensions.php";
 echo "Passed $checks total checks\n";

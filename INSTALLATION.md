@@ -258,3 +258,5 @@ For concurrency, monitoring, upgrade steps and measured resource use, see [Produ
 ## Additional coordinate systems and SLD
 
 See [CRS and SLD](docs/CRS_AND_SLD.md) for adding source/output CRS definitions, WMS axis order and publishing standard XML styles. DOM is required; no additional native GIS extension is needed.
+
+Before deployment run `php bin/console.php doctor --json --deep`. See [operations and style services](docs/OPERATIONS_AND_STYLES.md) for cache quotas, overview datasets and optional client compatibility tests.

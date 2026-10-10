@@ -6,6 +6,7 @@ namespace PureWms;
 
 final class Server
 {
+    public array $diagnostics = ['cache' => 'none'];
     public function __construct(private readonly Config $config)
     {
     }
@@ -14,11 +15,12 @@ final class Server
     public function handle(Request $request): array
     {
         $operation = $request->get('REQUEST');
+        $this->diagnostics = ['operation' => $operation, 'cache' => 'none'];
         if ($request->get('SERVICE', $operation === 'GetCapabilities' ? null : 'WMS') !== 'WMS') {
             throw new WmsException('SERVICE must be WMS.');
         }
         // Unknown extension parameters are ignored. SLD resources are strictly local.
-        if (!in_array($operation, ['GetCapabilities','GetMap','GetFeatureInfo','GetLegendGraphic'], true)) {
+        if (!in_array($operation, ['GetCapabilities','GetMap','GetFeatureInfo','GetLegendGraphic','GetStyles'], true)) {
             throw new WmsException('Unsupported operation.', 'OperationNotSupported');
         }
         $id = $request->get('MAP', $this->config->server['default_service']);
@@ -39,6 +41,9 @@ final class Server
             }
             return ['text/xml',Capabilities::build($this->config, $id, $service, $datasets),0];
         }
+        if ($operation === 'GetStyles') {
+            return ['application/vnd.ogc.sld+xml', StyleExport::build($this->config, $service, $request), 0];
+        }
         if ($operation === 'GetLegendGraphic') {
             return $this->legend($request, $service);
         }
@@ -49,9 +54,13 @@ final class Server
             $styles[] = $this->requestedStyle($request, $name, $layer, $map['styles'][$i]);
         }
         $datasets = [];
-        foreach ($map['layers'] as $name) {
-            $dataset = $service['layers'][$name]['dataset'];
-            $datasets[$dataset] ??= $this->dataset($dataset);
+        $scale = LayerPlan::scale($map, $this->config->crs);
+        foreach ($map['layers'] as $i => $name) {
+            $service['layers'][$name]['dataset'] = LayerPlan::dataset($service['layers'][$name], $scale);
+            if (LayerPlan::visible($styles[$i], $scale)) {
+                $dataset = $service['layers'][$name]['dataset'];
+                $datasets[$dataset] ??= $this->dataset($dataset);
+            }
         }
         $cache = new Cache($this->config);
         $revisions = [];
@@ -70,12 +79,24 @@ final class Server
                 }
             }
         }
-        $key = hash('sha256', json_encode(['renderer' => 3, 'crs_definitions' => $this->config->crs->definitions,'map' => $map,'styles' => $styles,'service' => $service,'datasets' => $revisions,'resources' => $resources], JSON_THROW_ON_ERROR));
+        $key = hash('sha256', json_encode(['renderer' => 4, 'crs_definitions' => $this->config->crs->definitions,'map' => $map,'styles' => $styles,'service' => $service,'datasets' => $revisions,'resources' => $resources], JSON_THROW_ON_ERROR));
         if ($operation === 'GetMap' && ($cached = $cache->read($key)) !== null) {
+            $this->diagnostics['cache'] = 'hit';
             return ['image/png',$cached,0];
         }
-        $lock = $cache->acquire();
+        $keyLock = null;
+        $lock = null;
+        $budget = null;
         try {
+            if ($operation === 'GetMap') {
+                $keyLock = $cache->acquireKey($key);
+                if (($cached = $cache->read($key)) !== null) {
+                    $this->diagnostics['cache'] = 'hit';
+                    return ['image/png',$cached,0];
+                }
+                $this->diagnostics['cache'] = 'miss';
+            }
+            $lock = $cache->acquire();
             $budget = new Budget($this->config->server);
             $renderer = new Renderer($this->config, $map, $budget);
             $bbox = $renderer->geographicBounds();
@@ -84,6 +105,9 @@ final class Server
             }
             foreach ($map['layers'] as $i => $name) {
                 $layer = $service['layers'][$name];
+                if (!LayerPlan::visible($styles[$i], $scale)) {
+                    continue;
+                }
                 // Each FeatureTypeStyle is a separate painter's pass over the layer.
                 $passes = isset($styles[$i]['_sld_groups'])
                     ? array_map(static fn ($group) => ['_sld_groups' => [$group]], $styles[$i]['_sld_groups'])
@@ -102,8 +126,10 @@ final class Server
 
             return ['image/png',$png,0];
         } finally {
-            flock($lock, LOCK_UN);
-            fclose($lock);
+            if ($budget !== null) { $this->diagnostics += $budget->metrics(); }
+            foreach ([$lock, $keyLock] as $handle) {
+                if (is_resource($handle)) { flock($handle, LOCK_UN); fclose($handle); }
+            }
         }
     }
 
@@ -142,6 +168,9 @@ final class Server
         foreach ($queryLayers as $name) {
             $i = array_search($name, $map['layers'], true);
             $layer = $service['layers'][$name];
+            if (!LayerPlan::visible($styles[$i], $renderer->scale)) {
+                continue;
+            }
             $matches = [];
             $matchBytes = 0;
             foreach ($datasets[$layer['dataset']]->query($bbox, $this->config->server['max_features']) as $feature) {
@@ -240,40 +269,9 @@ final class Server
 
     private function legend(Request $request, array $service): array
     {
-        if ($request->get('FORMAT') !== 'image/png') {
-            throw new WmsException('Supported format: image/png.', 'InvalidFormat');
-        }
-        $layer = $service['layers'][$request->get('LAYER')] ?? throw new WmsException('Unknown legend layer.', 'LayerNotDefined');
-        $id = $request->get('STYLE', '');
-        $style = $this->requestedStyle($request, $request->get('LAYER'), $layer, $id);
-        $entries = [[$style,$style['title'] ?? $id]];
-        foreach ($style['rules'] ?? [] as $rule) {
-            $entries[] = [array_replace($style, $rule['symbolizer']),(string)$rule['equals']];
-        }
-        if (isset($style['_sld_groups'])) {
-            $entries = [];
-            foreach ($style['_sld_groups'] as $group) {
-                foreach ($group as $rule) {
-                    $entries[] = [$rule['symbols'], $rule['title']];
-                }
-            }
-        }
-        $map = ['width' => 260,'height' => 40 * count($entries),'background' => '#ffffff00','bbox' => [0,0,260,40 * count($entries)],'crs' => 'CRS:84'];
-        $renderer = new Renderer($this->config, $map, new Budget($this->config->server));
-        foreach ($entries as $i => [$symbolizer,$title]) {
-            $y = 20 + 40 * $i;
-            foreach (isset($style['_sld_groups']) ? $symbolizer : [$symbolizer] as $symbolizer) {
-                $symbolizer['size'] = min(26, $symbolizer['size'] ?? 16);
-                $geometry = match ($symbolizer['_geometry'] ?? $style['legend_geometry'] ?? 'point') {
-                    'polygon' => ['type' => 'Polygon','coordinates' => [[[8,$y - 10],[38,$y - 10],[38,$y + 10],[8,$y + 10],[8,$y - 10]]]],
-                    'line' => ['type' => 'LineString','coordinates' => [[8,$y + 5],[20,$y - 5],[38,$y + 2]]],
-                    default => ['type' => 'Point','coordinates' => [23,$y]],
-                };
-                $renderer->draw($geometry, $symbolizer);
-            }
-            imagettftext($renderer->canvas->image, 10, 0, 48, $y + 4, $renderer->canvas->color('#233c42'), $this->config->resource('DejaVuSans.ttf', 'ttf'), mb_substr($title, 0, 30));
-        }
-
-        return ['image/png',$renderer->canvas->png(),0];
+        $name = $request->get('LAYER');
+        $layer = $service['layers'][$name] ?? throw new WmsException('Unknown legend layer.', 'LayerNotDefined');
+        $style = $this->requestedStyle($request, $name, $layer, $request->get('STYLE', ''));
+        return Legend::render($this->config, $request, $layer, $style);
     }
 }

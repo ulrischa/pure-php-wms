@@ -133,8 +133,7 @@ try {
         file_put_contents($file, $key . "\nnot a PNG");
     }
     check($isolated_cache->read($key) === null, 'Corrupt cache payload is a miss');
-    $slot = hexdec(substr($key, 0, 7)) % $isolated_config->server['cache_slots'];
-    $slot_path = $isolated_root . '/cache/map-' . $slot . '.bin';
+    $slot_path = $isolated_root . '/cache/map-' . $key . '.bin';
     unlink($slot_path);
     mkdir($slot_path);
     check($isolated_cache->read($key) === null, 'Non-file cache slot is a miss');

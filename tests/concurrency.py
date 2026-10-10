@@ -88,7 +88,7 @@ with tempfile.TemporaryDirectory(prefix='wms-concurrency-') as directory:
             cleaner.join()
             check(all(r[0] in (200, 503) for r in results), 'No unexpected status under concurrent cache deletion')
             check(all(r[2] == first[2] for r in results if r[0] == 200), 'Concurrent PNG results are byte-identical')
-            check(all(b'Server busy' in r[2] for r in results if r[0] == 503), 'Any overload response is admission control, not an internal failure')
+            check(all(b'Server busy' in r[2] or b'Map already rendering' in r[2] for r in results if r[0] == 503), 'Any overload response is admission control, not an internal failure')
             check(any(r[0] == 200 for r in results), 'Concurrent workload made progress')
             check(request()[0] == 200, 'Service recovers after workload')
             latencies = sorted(r[3] for r in results)

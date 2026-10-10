@@ -4,3 +4,5 @@
 /data/*.tmp*
 /tests/output/
 /data/*.lock
+
+/tests/clients/node_modules/

@@ -19,7 +19,17 @@ final class Capabilities
         $xml->writeElement('Name', 'WMS');
         $xml->writeElement('Title', $service['title']);
         $xml->writeElement('Abstract', $service['abstract'] ?? '');
+        self::keywords($xml, $service['keywords'] ?? []);
         self::online($xml, $config->server['base_url'] . '?MAP=' . rawurlencode($id));
+        if (isset($service['contact'])) {
+            $xml->startElement('ContactInformation');
+            $xml->startElement('ContactPersonPrimary');
+            $xml->writeElement('ContactPerson', $service['contact']['person'] ?? '');
+            $xml->writeElement('ContactOrganization', $service['contact']['organization'] ?? '');
+            $xml->endElement();
+            if (isset($service['contact']['email'])) { $xml->writeElement('ContactElectronicMailAddress', $service['contact']['email']); }
+            $xml->endElement();
+        }
         $xml->writeElement('Fees', $service['fees'] ?? 'none');
         $xml->writeElement('AccessConstraints', $service['access_constraints'] ?? 'none');
         $xml->writeElement('LayerLimit', '16');
@@ -65,7 +75,15 @@ final class Capabilities
             $xml->writeElement('Name', $name);
             $xml->writeElement('Title', $layer['title']);
             $xml->writeElement('Abstract', $layer['abstract'] ?? '');
+            self::keywords($xml, $layer['keywords'] ?? []);
             self::bounds($xml, $bbox);
+            if (isset($layer['attribution'])) {
+                $xml->startElement('Attribution'); $xml->writeElement('Title', $layer['attribution']); $xml->endElement();
+            }
+            if (isset($layer['metadata_url'])) {
+                $xml->startElement('MetadataURL'); $xml->writeAttribute('type', 'ISO19115');
+                $xml->writeElement('Format', 'text/xml'); self::online($xml, $layer['metadata_url']); $xml->endElement();
+            }
             foreach ($layer['styles'] as $styleId) {
                 $style = $config->style($styleId);
                 $xml->startElement('Style');
@@ -77,6 +95,10 @@ final class Capabilities
                 $xml->writeElement('Format', 'image/png');
                 self::online($xml, $config->server['base_url'] . '?' . http_build_query(['MAP' => $id,'SERVICE' => 'WMS','VERSION' => '1.3.0','REQUEST' => 'GetLegendGraphic','LAYER' => $name,'STYLE' => $styleId,'FORMAT' => 'image/png'], '', '&', PHP_QUERY_RFC3986));
                 $xml->endElement();
+                $xml->startElement('StyleSheetURL');
+                $xml->writeElement('Format', 'application/vnd.ogc.sld+xml');
+                self::online($xml, $config->server['base_url'] . '?' . http_build_query(['MAP' => $id, 'SERVICE' => 'WMS', 'VERSION' => '1.3.0', 'REQUEST' => 'GetStyles', 'LAYERS' => $name], '', '&', PHP_QUERY_RFC3986));
+                $xml->endElement();
                 $xml->endElement();
             }
             $xml->endElement();
@@ -87,6 +109,14 @@ final class Capabilities
         $xml->endDocument();
 
         return $xml->outputMemory();
+    }
+
+    private static function keywords(\XMLWriter $xml, array $keywords): void
+    {
+        if (!$keywords) { return; }
+        $xml->startElement('KeywordList');
+        foreach ($keywords as $keyword) { $xml->writeElement('Keyword', $keyword); }
+        $xml->endElement();
     }
 
     private static function bounds(\XMLWriter $xml, array $bbox): void

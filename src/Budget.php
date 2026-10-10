@@ -16,6 +16,11 @@ final class Budget
         $this->deadline = microtime(true) + $limits['max_seconds'];
     }
 
+    public function metrics(): array
+    {
+        return ['features' => $this->features, 'vertices' => $this->vertices, 'work' => $this->work];
+    }
+
     public function check(int $features = 0, int $vertices = 0, int $work = 0): void
     {
         $this->features += $features;

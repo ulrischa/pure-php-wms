@@ -76,16 +76,26 @@ final class Canvas
         }
     }
 
-    public function line(array $points, string $color, int $width = 1, bool $closed = false): void
+    public function line(array $points, string $color, int $width = 1, bool $closed = false, array $dash = []): void
     {
         if ($closed && $points) {
             $points[] = $points[0];
         }
         imagesetthickness($this->image, $width);
+        $paint = $this->color($color);
+        if ($dash) {
+            if (count($dash) % 2) { $dash = array_merge($dash, $dash); }
+            $pattern = [];
+            foreach ($dash as $i => $length) {
+                array_push($pattern, ...array_fill(0, $length, $i % 2 ? IMG_COLOR_TRANSPARENT : $paint));
+            }
+            imagesetstyle($this->image, $pattern);
+            $paint = IMG_COLOR_STYLED;
+        }
         for ($i = 1;$i < count($points);++$i) {
             $segment = $this->clip($points[$i - 1], $points[$i], $width);
             if ($segment !== null) {
-                imageline($this->image, (int)round($segment[0][0]), (int)round($segment[0][1]), (int)round($segment[1][0]), (int)round($segment[1][1]), $this->color($color));
+                imageline($this->image, (int)round($segment[0][0]), (int)round($segment[0][1]), (int)round($segment[1][0]), (int)round($segment[1][1]), $paint);
             }
         }
         imagesetthickness($this->image, 1);

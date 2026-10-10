@@ -34,7 +34,9 @@ A typical installation uses:
   "max_vertices": 250000,
   "max_seconds": 10,
   "max_parallel": 3,
-  "cache_slots": 64,
+  "cache_slots": 256,
+  "cache_max_bytes": 67108864,
+  "log_requests": false,
   "cache_ttl": 3600,
   "cors_origins": ["*"]
 }
@@ -51,12 +53,12 @@ A typical installation uses:
 | `max_vertices` | Maximum transformed vertices; shipped as 250,000; allowed setting 100–1,000,000 |
 | `max_seconds` | Cooperative rendering time budget in seconds; shipped as 10; allowed setting 1–60 |
 | `max_parallel` | Maximum simultaneous admitted rendering requests per installation; shipped as 3; allowed setting 1–16 |
-| `cache_slots` | Number of PNG cache slots; shipped as 64; allowed setting 0–2048; 0 disables the cache |
+| `cache_slots` | Maximum PNG cache files; shipped as 256; allowed setting 0–2048; 0 disables the cache |
 | `cache_ttl` | Cache lifetime in seconds; shipped as 3600; allowed setting 0–86,400; 0 disables the cache |
 
 The cooperative time budget checks the application loop but does **not** interrupt an individual blocking library/GD call. Retain a sensible PHP `max_execution_time` at the web-server level. The renderer also uses a bounded polygon scanline work budget.
 
-`cache_slots` limits file **count**, not disk bytes. At 2,097,152 pixels, a worst-case uncompressed RGBA image is about 8 MiB; 64 poorly compressible cached images could approach 512 MiB. Tight hosting should lower `cache_slots` or `max_pixels`. Old `render-*` temporary files can be removed when you are certain the creating processes ended. Do **not** delete or replace active `worker-*.lock` files.
+`cache_slots` limits completed image count; `cache_max_bytes` limits their combined size (default 64 MiB, allowed 1 MiB–1 GiB). Expired and least-recently-accessed images are evicted on write. Allow additional space for temporary writes and locks. `log_requests` enables structured JSON records in the PHP error log (default false). Old `render-*` temporary files can be removed when their creating processes have ended. Do **not** delete or replace active `*.lock` files.
 
 CORS is **not access control**: use Apache auth or network restrictions to protect nonpublic services. There is no credential CORS or authorization-header preflight implementation.
 
@@ -324,3 +326,7 @@ Cache entries are opened before checking age/key, avoiding pathname races with c
 ## CRS registry and SLD files
 
 `config/crs.json` registers additional source/output coordinate systems. `config/sld.json` maps approved SLD URL identifiers to local resources. Style JSON may wrap a local SLD file using `sld_file`, `sld_layer` and `sld_style`. See [the complete CRS/SLD reference and examples](CRS_AND_SLD.md). `SLD` and `SLD_BODY` are recognized styling parameters; unsupported SLD content is rejected, not ignored.
+
+## Operational and style-service additions
+
+See [Operations and styles](OPERATIONS_AND_STYLES.md) for `cache_max_bytes`, `log_requests`, layer `overviews`, capability metadata, new label/dash properties, GetStyles and GetLegendGraphic control parameters. New installations default to 256 cached files and a 64 MiB completed-entry quota.

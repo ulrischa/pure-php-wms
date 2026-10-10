@@ -55,6 +55,13 @@ try:
     sld_body=(root/'resources/places.sld').read_text()
     status,headers,body=request(q.replace('LAYERS=land%2Croutes%2Cplaces','LAYERS=places')+'&SLD_BODY='+urllib.parse.quote(sld_body,safe=''))
     check(status==200 and body.startswith(b'\x89PNG'),'Inline SLD map over HTTP')
+    status,headers,body=request('SERVICE=WMS&VERSION=1.3.0&REQUEST=GetStyles&LAYERS=places')
+    check(status==200 and headers.get('Content-Type')=='application/vnd.ogc.sld+xml' and b'StyledLayerDescriptor' in body,'GetStyles over HTTP')
+    check(headers.get('Server-Timing','').startswith('wms;dur='),'Request timing header')
+    status,headers,body=request(q)
+    check(headers.get('X-WMS-Cache') in ('hit','miss'),'Cache diagnostics header')
+    status,headers,body=request('SERVICE=WMS&VERSION=1.3.0&REQUEST=GetLegendGraphic&LAYER=places&STYLE=places_sld&FORMAT=image/png&RULE=stations&SCALE=10000')
+    check(status==200 and body.startswith(b'\x89PNG'),'Controlled legend over HTTP')
     print(f'Passed {checks} HTTP checks')
 finally:
     server.terminate()

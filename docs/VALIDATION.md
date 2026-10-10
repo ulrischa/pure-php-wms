@@ -8,8 +8,8 @@ Recorded environment: Linux, **PHP CLI 8.3.31**, GD/FreeType, PDO_SQLite with RT
 
 | Test | Recorded result |
 |---|---|
-| `php tests/run.php` | **178 checks passed** |
-| `python tests/http_smoke.py php` | **23 HTTP checks passed** |
+| `php tests/run.php` | **219 checks passed** |
+| `python tests/http_smoke.py php` | **27 HTTP checks passed** |
 | `python tests/concurrency.py php` (Linux) | **9 checks passed; 80 requests with 8 clients** |
 | PHP syntax checking | Source and tests free of syntax errors in the recorded run |
 | `composer validate --strict` | Valid manifest and lock file |
@@ -94,3 +94,9 @@ See [PRODUCTION.md](PRODUCTION.md) for the 32 MiB SHP import, before/after memor
 ## CRS and SLD regression coverage
 
 `tests/crs_sld.php` checks EPSG:3035 origin and inverse values, all shipped CRS roundtrips, projected source import, northing/easting WMS BBOX handling, expected rendered point pixels and feature-info hits in the requested CRS. SLD checks cover local/inline/registered-URL equivalence, filters, ElseFilter, multiple matching rules, scale bounds, polygon holes, line symbols, SE parameters, capability advertisement, legends and blocked XML entities/remote graphics. A small LAEA adapter corrects proj4php 2.0.19's inverse-origin branch; the origin regression must remain when updating that dependency. Newly configured CRS definitions still require independent reference checks for the intended region and datum.
+
+## Service extension verification
+
+The extension suite checks GetStyles XML/reimport, rule and context legends, polygon-hole intersection, dash rendering, label placement, cache byte quotas/LRU access, exact-key request locking, prepared-overview selection and skipping scale-hidden missing datasets. GetStyles output for the supplied styles also validated against the official OGC SLD 1.0 schema. External OpenLayers 10.11.0 and Leaflet 1.9.4 generated successful WMS map/feature-info requests in headless HTTP tests; see `tests/clients/`. This is not a full browser, QGIS or CITE test.
+
+Recorded extension benchmark (synthetic 3,000 points, 1,000 × 700 PNG, PHP 8.3.31): cold render approximately 71 ms, cache hit 3.9 ms, peak reported PHP memory 16 MiB. These are local fixture measurements, not hosting capacity guarantees.

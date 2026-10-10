@@ -72,7 +72,7 @@ The same style selection works in GetFeatureInfo. Rules that hide a feature excl
 - **`SLD_BODY`**: URL-encoded XML in a GET request, with `LAYERS` and `STYLES` still supplied. An empty `STYLES=` selects the sole/default SLD style; otherwise names select SLD user styles. Every requested layer must have a matching `NamedLayer`. GET query strings remain limited to **8192 encoded bytes**, so use a local file for larger documents. XML POST and persistent style uploads are not implemented.
 - **`SLD`**: an exact URL registered by the administrator in `config/sld.json`, mapped to a local `.sld` resource. The server resolves this mapping locally and **never downloads the URL**. The shipped example maps `https://example.org/styles/places.sld` to `resources/places.sld`; replace that identifier for your deployment. Unregistered URLs are rejected.
 - Supply at most one of `SLD` and `SLD_BODY`. `NamedStyle` inside request XML may reference only an already published style for that layer. Local configured SLD files must contain a `UserStyle`.
-- GetLegendGraphic accepts the same SLD parameters plus `LAYER` and optional `STYLE`. It shows one row per rule, including scale-dependent rules; it does not filter the legend by current map scale.
+- GetLegendGraphic accepts the same SLD parameters plus `LAYER` and optional `STYLE`. It supports RULE, SCALE and BBOX/CRS context selection; see [legend controls](OPERATIONS_AND_STYLES.md#getlegendgraphic-controls).
 
 Example with a registered URL:
 
@@ -91,14 +91,16 @@ curl --get 'https://maps.example.org/wms.php' \
 
 | Element | Supported behavior |
 |---|---|
-| `NamedLayer`, `UserStyle`, `FeatureTypeStyle`, `Rule` | Up to 32 rules total, 8 symbolizers per rule. Each FeatureTypeStyle is a separate painter's pass over the layer. All matching regular rules apply; ElseFilter rules apply when no regular rule matches at the current scale. Labels are placed after geometry. |
+| `NamedLayer`, `UserStyle`, `FeatureTypeStyle`, `Rule` | Up to 64 rules total, 8 symbolizers per rule. Each FeatureTypeStyle is a separate painter's pass over the layer. All matching regular rules apply; ElseFilter rules apply when no regular rule matches at the current scale. Labels are placed after geometry. |
 | `MinScaleDenominator`, `MaxScaleDenominator` | Inclusive minimum, exclusive maximum. Scale uses the WMS/SE 0.28 mm reference pixel. |
 | `PointSymbolizer` | `Graphic/Mark`: circle, square, triangle, diamond, cross; size 1–128 px. Fill, stroke and graphic opacity. `ExternalGraphic` accepts an existing local PNG filename in `xlink:href`, with `Format=image/png`; no remote URLs. |
 | `LineSymbolizer`, `PolygonSymbolizer` | Solid fill/stroke, opacity and stroke widths 0–16 px. Polygon holes remain transparent. Line symbolizers may outline polygons. |
-| `TextSymbolizer` | One `ogc:PropertyName` label; local TTF font, font size 8–64 px, fill, halo radius 0–4 px. `DejaVu Sans` maps to the bundled font. Font style/weight must be `normal`; use a specific TTF filename for another face. Automatic collision-aware placement, without custom LabelPlacement. |
+| `TextSymbolizer` | One `ogc:PropertyName` label; local TTF font, font size 8–64 px, fill, halo radius 0–4 px. `DejaVu Sans` maps to the bundled font. Font style/weight must be `normal`; use a specific TTF filename for another face. Automatic collision-aware placement, with supported PointPlacement and simple LinePlacement. |
 | `CssParameter`, `SvgParameter` | Literal `#RRGGBB` colors and numeric values; fill/stroke opacity 0–1. Widths, sizes and halo radii round to pixels. |
-| OGC filters | Property/literal comparisons: equal, not equal, less/greater, inclusive variants, PropertyIsNull, And, Or, Not. Comparisons are case-sensitive; numeric operands compare numerically. Logical nesting is limited to 8. |
+| OGC filters | Property/literal comparisons: equal, not equal, less/greater, inclusive variants, PropertyIsNull, PropertyIsLike, And, Or, Not. Comparisons are case-sensitive; numeric operands compare numerically. Logical nesting is limited to 8. |
 
-Unsupported elements raise a WMS exception. This includes UserLayer/remote data, spatial filters, PropertyIsLike, functions/arithmetic expressions, dashed strokes, graphic fills/strokes, custom placement/rotation and vendor options. QGIS-exported styles may contain these constructs: simplify them to this profile instead of assuming every export works. XML DTDs and entities are forbidden, document size is limited to 128 KiB and element count to 2048. Fonts and icons must stay inside `resources/`. The cache key includes compiled styles and font/icon content hashes.
+Unsupported elements raise a WMS exception. This includes UserLayer/remote data, spatial filters, functions/arithmetic expressions, graphic fills/strokes, graphic rotation, advanced label placement and vendor options. QGIS-exported styles may contain these constructs: simplify them to this profile instead of assuming every export works. XML DTDs and entities are forbidden, document size is limited to 128 KiB and element count to 2048. Fonts and icons must stay inside `resources/`. The cache key includes compiled styles and font/icon content hashes.
 
 References: [OGC SLD 1.0 schema](https://schemas.opengis.net/sld/1.0.0/StyledLayerDescriptor.xsd), [SLD 1.1 schema](https://schemas.opengis.net/sld/1.1.0/StyledLayerDescriptor.xsd), [SE 1.1 schema](https://schemas.opengis.net/se/1.1.0/Symbolizer.xsd), [proj4php](https://github.com/proj4php/proj4php).
+
+Additional dash, label and GetStyles details are in [Operations and styles](OPERATIONS_AND_STYLES.md).

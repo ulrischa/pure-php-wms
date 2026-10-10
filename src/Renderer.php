@@ -17,8 +17,7 @@ final class Renderer
     {
         $this->canvas = new Canvas($map['width'], $map['height'], $map['background']);
         $this->projection = new Projection($config->crs);
-        $units = $config->crs->get($map['crs'])['meters_per_unit'];
-        $this->scale = ($map['bbox'][2] - $map['bbox'][0]) / $map['width'] * $units / 0.00028;
+        $this->scale = LayerPlan::scale($map, $config->crs);
     }
 
     public function geographicBounds(int $padding = 192): array
@@ -89,26 +88,9 @@ final class Renderer
     /** JSON styles use first-match overrides; SLD applies all matching rules. */
     public function symbolizers(array $style, array $properties): array
     {
-        if (!isset($style['_sld_groups'])) {
-            $part = $this->symbolizer($style, $properties);
-            return $this->visible($part) ? [$part] : [];
-        }
         $result = [];
-        foreach ($style['_sld_groups'] as $group) {
-            $matched = false;
-            foreach ($group as $rule) {
-                if (!$rule['else'] && $this->scale >= $rule['min'] && $this->scale < $rule['max'] && Sld::matches($rule['filter'], $properties)) {
-                    $matched = true;
-                    array_push($result, ...$rule['symbols']);
-                }
-            }
-            if (!$matched) {
-                foreach ($group as $rule) {
-                    if ($rule['else'] && $this->scale >= $rule['min'] && $this->scale < $rule['max']) {
-                        array_push($result, ...$rule['symbols']);
-                    }
-                }
-            }
+        foreach (StyleRules::matching($style, $properties, $this->scale) as $rule) {
+            array_push($result, ...$rule['symbols']);
         }
         return $result;
     }
@@ -190,6 +172,11 @@ final class Renderer
                 $text = mb_substr($text, 0, 80, 'UTF-8');
                 $anchor = $this->anchor($geometry);
                 if ($text !== '' && $anchor !== null) {
+                    if ($style['label_follow_line'] ?? false) {
+                        $style['label_angle'] = $this->lineAngle($geometry, $anchor);
+                    }
+                    $priority = $feature['properties'][$style['label_priority_field'] ?? ''] ?? 0;
+                    $style['_priority'] = is_numeric($priority) && is_finite((float)$priority) ? (float)$priority : 0;
                     $this->labels[] = [$anchor,$text,$style];
                 }
             }
@@ -214,7 +201,7 @@ final class Renderer
                 $this->symbol($p, $style);
             } break;
             case 'LineString': if (($style['stroke_width'] ?? 1) > 0) {
-                $this->canvas->line($c, $style['stroke'] ?? '#253c4a', $style['stroke_width'] ?? 1);
+                $this->canvas->line($c, $style['stroke'] ?? '#253c4a', $style['stroke_width'] ?? 1, false, $style['stroke_dasharray'] ?? []);
             } break;
             case 'MultiLineString': foreach ($c as $line) {
                 $this->draw(['type' => 'LineString','coordinates' => $line], $style);
@@ -225,7 +212,7 @@ final class Renderer
                 $this->canvas->polygon($c, $style['fill'] ?? '#4ea88980');
                 if (($style['stroke_width'] ?? 1) > 0) {
                     foreach ($c as $ring) {
-                        $this->canvas->line($ring, $style['stroke'] ?? '#285b4d', $style['stroke_width'] ?? 1, true);
+                        $this->canvas->line($ring, $style['stroke'] ?? '#285b4d', $style['stroke_width'] ?? 1, true, $style['stroke_dasharray'] ?? []);
                     }
                 }
                 break;
@@ -385,13 +372,41 @@ final class Renderer
         return null;
     }
 
+    private function lineAngle(array $geometry, array $anchor): float
+    {
+        $lines = match ($geometry['type']) {
+            'LineString' => [$geometry['coordinates']],
+            'MultiLineString' => $geometry['coordinates'],
+            default => [],
+        };
+        $best = INF; $angle = 0;
+        foreach ($lines as $line) {
+            for ($i = 1; $i < count($line); ++$i) {
+                $distance = Geometry::distanceTo(['type' => 'LineString', 'coordinates' => [$line[$i-1],$line[$i]]], $anchor);
+                if ($distance < $best) {
+                    $best = $distance;
+                    $angle = rad2deg(atan2($line[$i-1][1] - $line[$i][1], $line[$i][0] - $line[$i-1][0]));
+                    if ($angle > 90) { $angle -= 180; }
+                    if ($angle < -90) { $angle += 180; }
+                }
+            }
+        }
+        return $angle;
+    }
+
     public function labels(): void
     {
+        usort($this->labels, static fn ($a, $b) => ($b[2]['_priority'] ?? 0) <=> ($a[2]['_priority'] ?? 0));
+        $placed = [];
         foreach ($this->labels as [$anchor,$text,$style]) {
+            foreach ($placed[$text] ?? [] as $previous) {
+                if (hypot($anchor[0] - $previous[0], $anchor[1] - $previous[1]) < ($style['label_min_distance'] ?? 0)) { continue 2; }
+            }
             $this->budget->check();
             $font = $this->config->resource($style['font'] ?? 'DejaVuSans.ttf', 'ttf');
             $size = $style['font_size'] ?? 11;
-            $bbox = imagettfbbox($size, 0, $font, $text);
+            $angle = $style['label_angle'] ?? 0;
+            $bbox = imagettfbbox($size, $angle, $font, $text);
             if ($bbox === false) {
                 throw new \RuntimeException('FreeType font measurement failed.');
             }
@@ -402,7 +417,12 @@ final class Renderer
             $w = $maxx - $minx;
             $h = $maxy - $miny;
             $halo = $style['halo'] ?? 1;
-            foreach ([[8,-$h / 2],[-$w - 8,-$h / 2],[-$w / 2,-$h - 8]] as [$dx,$dy]) {
+            $offsets = [[8,-$h / 2],[-$w - 8,-$h / 2],[-$w / 2,-$h - 8]];
+            if (isset($style['label_anchor'])) {
+                $offset = $style['label_offset'] ?? [0,0];
+                $offsets = [[-$w * $style['label_anchor'][0] + $offset[0], -$h * (1 - $style['label_anchor'][1]) - $offset[1]]];
+            }
+            foreach ($offsets as [$dx,$dy]) {
                 $left = (int)round($anchor[0] + $dx);
                 $top = (int)round($anchor[1] + $dy);
                 $rect = [$left - $halo - 2,$top - $halo - 2,$left + $w + $halo + 2,$top + $h + $halo + 2];
@@ -414,11 +434,12 @@ final class Renderer
                 for ($ox = -$halo;$ox <= $halo;++$ox) {
                     for ($oy = -$halo;$oy <= $halo;++$oy) {
                         if ($ox || $oy) {
-                            imagettftext($this->canvas->image, $size, 0, $x + $ox, $y + $oy, $this->canvas->color($style['halo_color'] ?? '#ffffffff'), $font, $text);
+                            imagettftext($this->canvas->image, $size, $angle, $x + $ox, $y + $oy, $this->canvas->color($style['halo_color'] ?? '#ffffffff'), $font, $text);
                         }
                     }
                 }
-                imagettftext($this->canvas->image, $size, 0, $x, $y, $this->canvas->color($style['label_color'] ?? '#19352fff'), $font, $text);
+                imagettftext($this->canvas->image, $size, $angle, $x, $y, $this->canvas->color($style['label_color'] ?? '#19352fff'), $font, $text);
+                $placed[$text][] = $anchor;
                 break;
             }
         }

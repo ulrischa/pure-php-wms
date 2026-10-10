@@ -68,7 +68,7 @@ rejects(fn () => response(array_replace($params, ['SLD'=>'http://localhost/priva
 rejects(fn () => response(array_replace($inline, ['SLD'=>'https://example.org/styles/places.sld'])));
 rejects(fn () => $config->sldStyle('<!DOCTYPE x [<!ENTITY x SYSTEM "file:///etc/passwd">]>' . $xml,'places'));
 rejects(fn () => $config->sldStyle(str_repeat(' ',131073),'places'));
-rejects(fn () => $config->sldStyle(str_replace('stroke-width','stroke-dasharray',$xml),'places'));
+rejects(fn () => $config->sldStyle(str_replace('stroke-width','stroke-linejoin',$xml),'places'));
 rejects(fn () => $config->sldStyle($xml,'not_published'));
 rejects(fn () => $config->sldStyle($xml,'places','missing_style'));
 

@@ -84,6 +84,44 @@ final class Geometry
         return hypot($p[0] - $a[0] - $t * $dx, $p[1] - $a[1] - $t * $dy);
     }
 
+    /** Exact planar feature/rectangle intersection after projection, including holes. */
+    public static function intersectsBox(array $geometry, array $box): bool
+    {
+        $type = $geometry['type'];
+        $coordinates = $geometry['coordinates'] ?? [];
+        $inside = static fn ($p) => $p[0] >= $box[0] && $p[0] <= $box[2] && $p[1] >= $box[1] && $p[1] <= $box[3];
+        if ($type === 'Point') { return $inside($coordinates); }
+        if (in_array($type, ['GeometryCollection','MultiPoint','MultiPolygon'], true)) {
+            $children = $type === 'GeometryCollection' ? $geometry['geometries'] : array_map(
+                static fn ($part) => ['type' => $type === 'MultiPoint' ? 'Point' : 'Polygon', 'coordinates' => $part], $coordinates);
+            foreach ($children as $child) { if (self::intersectsBox($child, $box)) { return true; } }
+            return false;
+        }
+        if ($type === 'Polygon') {
+            foreach ([[$box[0],$box[1]],[$box[0],$box[3]],[$box[2],$box[1]],[$box[2],$box[3]]] as $corner) {
+                if (self::inside($corner, $coordinates)) { return true; }
+            }
+        }
+        $lines = $type === 'LineString' ? [$coordinates] : $coordinates;
+        foreach ($lines as $line) {
+            foreach ($line as $p) { if ($inside($p)) { return true; } }
+            for ($i = 1; $i < count($line); ++$i) {
+                $a = $line[$i - 1]; $b = $line[$i]; $lo = 0.0; $hi = 1.0;
+                foreach ([0,1] as $axis) {
+                    $delta = $b[$axis] - $a[$axis];
+                    if ($delta == 0) {
+                        if ($a[$axis] < $box[$axis] || $a[$axis] > $box[$axis + 2]) { $lo = 2; break; }
+                    } else {
+                        $u = ($box[$axis] - $a[$axis]) / $delta; $v = ($box[$axis + 2] - $a[$axis]) / $delta;
+                        $lo = max($lo, min($u,$v)); $hi = min($hi, max($u,$v));
+                    }
+                }
+                if ($lo <= $hi) { return true; }
+            }
+        }
+        return false;
+    }
+
     public static function hit(array $geometry, array $point, float $tolerance): bool
     {
         return self::distanceTo($geometry, $point) <= $tolerance;

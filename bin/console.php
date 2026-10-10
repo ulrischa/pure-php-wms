@@ -14,20 +14,13 @@ try {
     $config = new Config(dirname(__DIR__));
     switch ($command) {
         case 'doctor':
-            foreach (['dom', 'gd','pdo_sqlite','xmlwriter','mbstring','iconv'] as $extension) {
-                if (!extension_loaded($extension)) {
-                    throw new RuntimeException('Missing PHP extension: '.$extension);
-                }
+            $report = PureWms\Health::report($config, in_array('--deep', $argv, true));
+            if (in_array('--json', $argv, true)) { echo json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"; }
+            else {
+                foreach ($report['checks'] as $check) { echo ($check['ok'] ? 'OK ' : 'FAIL ') . $check['name'] . ': ' . (is_string($check['detail']) ? $check['detail'] : json_encode($check['detail'])) . "\n"; }
+                echo $report['note'] . "\n";
             }
-            if (!(gd_info()['FreeType Support'] ?? false)) {
-                throw new RuntimeException('GD needs FreeType support.');
-            }
-            $pdo = new PDO('sqlite::memory:');
-            $pdo->exec('CREATE VIRTUAL TABLE test USING rtree(id,x1,x2,y1,y2)');
-            foreach (['cache','data'] as $directory) {
-                echo $directory.': '.(is_writable($config->root.'/'.$directory) ? 'writable' : 'read-only')."\n";
-            }
-            echo 'PHP '.PHP_VERSION."; GD/FreeType, SQLite/RTree, DOM, XMLWriter, mbstring and iconv available.\n";
+            if (!$report['ok']) { exit(1); }
             break;
         case 'validate':
             (new PureWms\Projection($config->crs))->validate();
@@ -62,7 +55,7 @@ try {
                 unlink($file);
             } echo "Map cache cleared.\n";
             break;
-        default: echo "Commands:\n  php bin/console.php doctor\n  php bin/console.php validate\n  php bin/console.php import --all\n  php bin/console.php import DATASET\n  php bin/console.php list\n  php bin/console.php clear-cache\n";
+        default: echo "Commands:\n  php bin/console.php doctor [--json] [--deep]\n  php bin/console.php validate\n  php bin/console.php import --all\n  php bin/console.php import DATASET\n  php bin/console.php list\n  php bin/console.php clear-cache\n";
     }
 } catch (Throwable $error) {
     fwrite(STDERR, $error->getMessage()."\n");

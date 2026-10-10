@@ -8,6 +8,8 @@ ini_set('log_errors', '1');
 $buffer_level = ob_get_level();
 ob_start();
 $request_id = bin2hex(random_bytes(8));
+$started = microtime(true);
+$server = null;
 header('X-Content-Type-Options: nosniff');
 header('X-Request-ID: '.$request_id);
 header('Cache-Control: no-cache');
@@ -46,7 +48,10 @@ try {
         }
     }
     $request = PureWms\Request::fromQuery($_SERVER['QUERY_STRING'] ?? '');
-    [$mime,$body] = (new PureWms\Server($config))->handle($request);
+    $server = new PureWms\Server($config);
+    [$mime,$body] = $server->handle($request);
+    header('X-WMS-Cache: '.$server->diagnostics['cache']);
+    header('Server-Timing: wms;dur='.round((microtime(true) - $started) * 1000, 2));
     while (ob_get_level() > $buffer_level) {
         ob_end_clean();
     }
@@ -54,11 +59,11 @@ try {
     header('ETag: '.$etag);
     if (trim($_SERVER['HTTP_IF_NONE_MATCH'] ?? '') === $etag) {
         http_response_code(304);
-        exit;
+    } else {
+        header('Content-Type: '.$mime);
+        header('Content-Length: '.strlen($body));
+        echo $body;
     }
-    header('Content-Type: '.$mime);
-    header('Content-Length: '.strlen($body));
-    echo $body;
 } catch (Throwable $error) {
     while (ob_get_level() > $buffer_level) {
         ob_end_clean();
@@ -73,6 +78,7 @@ try {
         }
         $error = new PureWms\WmsException('Service unavailable. Reference: '.$request_id, 'NoApplicableCode', 503);
     }
+    if ($server !== null) { $server->diagnostics['failure'] = $error->getMessage(); $server->diagnostics['wms_code'] = $error->wmsCode; }
     http_response_code($error->status);
     if ($error->status === 503) {
         header('Retry-After: 5');
@@ -80,4 +86,11 @@ try {
     header('Content-Type: text/xml; charset=UTF-8');
     header('Cache-Control: no-store');
     echo PureWms\Capabilities::exception($error);
+}
+ finally {
+    if (isset($config) && $config->server['log_requests']) {
+        error_log(json_encode(['event' => 'wms_request', 'request_id' => $request_id,
+            'status' => http_response_code(), 'duration_ms' => round((microtime(true) - $started) * 1000, 2),
+            'peak_php_bytes' => memory_get_peak_usage(true)] + ($server?->diagnostics ?? []), JSON_UNESCAPED_SLASHES));
+    }
 }

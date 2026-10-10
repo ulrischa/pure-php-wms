@@ -61,7 +61,7 @@ The test passed **9 assertions**:
 - Recorded median latency was about 50 ms and p95 about 92 ms, including admission-control responses. These are not successful-request throughput claims.
 - The service returned a valid map after the workload ended.
 
-The render limit protects the host by rejecting excess work. It does **not** queue requests, prevent all duplicate concurrent renders, or provide a distributed lock across multiple hosts. Tune `max_parallel` to available PHP worker memory/CPU; do not simply maximize it. Clients should honor the retry indication.
+The render limit protects the host by rejecting excess work. It does **not** queue requests or provide a distributed lock across multiple hosts. Exact-key admission additionally prevents duplicate concurrent map renders. Tune `max_parallel` to available PHP worker memory/CPU; do not simply maximize it. Clients should honor the retry indication.
 
 ## Hosting deployment and monitoring
 
@@ -70,7 +70,7 @@ The render limit protects the host by rejecting excess work. It does **not** que
 3. Keep configuration and published databases read-only for web requests. `cache/` must permit file creation, rename and file locking by the PHP worker. Local filesystem storage is the tested model; network filesystem lock/rename semantics must be verified separately.
 4. Begin with the supplied request limits and `memory_limit=256M`. Account for simultaneous PHP workers, GD/native allocations, OS memory and other applications. `max_seconds` is cooperative; configure an appropriate PHP/server execution timeout as well.
 5. Watch HTTP 503 frequency, response latency, PHP error logs, memory and disk usage. `X-Request-ID` ties internal failures to logged reference numbers. Cache-write failures are logged even when the client receives a successful map.
-6. Keep enough disk space for the current SQLite file, a new import/upload and its temporary journal. The cache limits file count, not a strict total byte quota. Clear old map-cache files with `php bin/console.php clear-cache`; never delete active `worker-*.lock` files.
+6. Keep enough disk space for the current SQLite file, a new import/upload and its temporary journal. The cache limits completed entries by file count and cache_max_bytes; temporary writes and lock files require extra space. Clear old map-cache files with `php bin/console.php clear-cache`; never delete active `worker-*.lock` files.
 7. Import trusted sources locally when SSH is unavailable, then publish the completed database by an atomic replacement if supported. Never stream an FTP upload directly over an active `.sqlite` file. Preserve the previous working dataset for rollback.
 8. Deploy all changed PHP files consistently, then clear the map cache after code upgrades. The renderer cache-version key was incremented for this change. Data revisions, styles and resource content hashes continue to invalidate cached maps.
 
@@ -82,3 +82,5 @@ Apache, QGIS desktop, an OGC CITE/TEAM Engine run, actual provider-specific file
 
 - [ESRI Shapefile Technical Description](https://www.esri.com/content/dam/esrisites/sitecore-archive/Files/Pdfs/library/whitepapers/pdfs/shapefile.pdf): file and record headers, XY/Z/M layouts and optional measure arrays.
 - The installed `phpmyadmin/shapefile` 4.0.1 source: public `ShapeRecord::loadFromFile()` and `ShapeFile::readSHP()` APIs used by the bounded input adapter. No private library fields are accessed or modified.
+
+The [operations guide](OPERATIONS_AND_STYLES.md) describes the subsequent cache, prepared-overview and diagnostics improvements, including `doctor --json --deep`.
