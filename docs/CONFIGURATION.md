@@ -92,7 +92,7 @@ Example combining all supported import types:
 
 Source coordinates are always read as **x,y**. In geographic source data that means **longitude,latitude** regardless of the WMS EPSG:4326 BBOX axis order. GeoPackage's CRS metadata must agree with the explicit `crs` setting; Shapefile `.prj` / `.cpg` are **not automatically parsed**. Only simple DBF column types `C`, `N`, `F`, `D` and `L` are supported; preprocess memo/binary columns. Long numeric identifiers should be exported as text to avoid floating-point precision loss.
 
-**Import limits:** 256 MiB source file; Shapefile SHP also has a 16 MiB cap plus memory checks; 1,000,000 features; 5,000,000 vertices across the dataset; 1,000,000 vertices in one GeoJSON/WKB geometry; 64 KiB attributes per feature. SHP records have stricter bounds: 250,000 points and 1000 parts per record. A publishable feature is limited to **20,000 vertices and 1 MiB geometry JSON**. These are protective limits, not a guarantee that pathologically crafted input cannot exhaust memory. Import only trusted administrative sources; simplify, split or re-export larger data in your GIS.
+**Import limits:** 256 MiB source file; Shapefile SHP/DBF are streamed record by record; 1,000,000 features; 5,000,000 vertices across the dataset; 1,000,000 vertices in one GeoJSON/WKB geometry; 64 KiB attributes per feature. SHP record bounds are checked before decoding: at most 1 MiB binary content, 20,000 points and 1000 parts per record, with at most 1,000,000 records including null/deleted entries. Valid Z/M arrays are skipped after structural validation because output is 2D. A publishable feature is limited to **20,000 vertices and 1 MiB geometry JSON**. These are protective limits, not a guarantee that pathologically crafted input cannot exhaust memory. Import only trusted administrative sources; simplify, split or re-export larger data in your GIS.
 
 Imported data is normalized into `data/NAME.sqlite` as EPSG:4326 JSON geometry, JSON properties and an SQLite RTree index. Dataset imports are locally atomic. Each successful import creates a new revision, used for automatic cache invalidation.
 
@@ -314,3 +314,9 @@ Unknown extension parameters such as SLD, FILTER, TIME or ELEVATION are accepted
 - The active renderer budgets and local PHP/Apache limits determine production capacity; test representative inputs.
 
 After modifying source files, run `php bin/console.php import NAME`; after modifying service or style JSON run `php bin/console.php validate`; after changing application code clear the map cache. Publish changed SQLite files safely (atomic rename or versioned dataset switch); never transfer them over the active name byte by byte.
+
+### Runtime hardening
+
+GetFeatureInfo applies a conservative 64-pixel spatial search radius before the actual geometry/style hit test. This radius covers the largest supported point symbol. Closest results are retained as serialized features with an aggregate 8 MiB payload budget; oversized responses produce a controlled 503. Text responses omit geometry from their retained representation. Duplicate query-layer names are processed once.
+
+Cache entries are opened before checking age/key, avoiding pathname races with cleanup. Missing or invalid entries are cache misses. Failed writes are logged and do not discard a rendered map; render admission still needs accessible `worker-*.lock` files. Do not delete lock files during operation.

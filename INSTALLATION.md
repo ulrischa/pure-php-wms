@@ -95,7 +95,7 @@ sources/protected_areas.prj
 sources/protected_areas.cpg
 ```
 
-The geometry/attributes come from SHP/DBF. Include the other companion files for completeness, but explicitly configure the CRS and DBF encoding: the importer does **not** parse `.prj`/`.cpg` automatically. Convert unsupported DBF field types (memo/binary) in a GIS. The SHP size cap is **16 MiB**; for larger sets export EPSG:4326 GeoJSON or divide by region.
+The geometry/attributes come from SHP/DBF. Include the other companion files for completeness, but explicitly configure the CRS and DBF encoding: the importer does **not** parse `.prj`/`.cpg` automatically. Convert unsupported DBF field types (memo/binary) in a GIS. SHP and DBF records are streamed in lockstep. The SHP source-file limit is **256 MiB**; each record is bounded before decoding. Features above 20,000 vertices must still be simplified or split.
 
 **GeoJSON:** create an EPSG:4326 GeoJSON **FeatureCollection** in `sources/`. The importer streams features but individual large geometries are still bounded. For source config use `"file": "areas.geojson", "crs": "EPSG:4326"`.
 
@@ -134,7 +134,7 @@ php bin/console.php import administrative_areas
 php bin/console.php list
 ```
 
-Alternatively `php bin/console.php import --all` imports every configured source. For heavy local imports only, you may temporarily increase CLI memory using `php -d memory_limit=1G bin/console.php import protected_areas`; the hard 16 MiB SHP limit still applies. The result for each source is a **different** file `data/NAME.sqlite` with geometries, attributes and RTree, normalized to EPSG:4326. Source files are unchanged. Failed imports do not replace the previously published dataset.
+Alternatively `php bin/console.php import --all` imports every configured source. For heavy local imports only, you may temporarily increase CLI memory using `php -d memory_limit=1G bin/console.php import protected_areas`; the 256 MiB source-file limit and per-feature complexity limits still apply. Increasing memory is not a substitute for simplifying an oversized individual feature. The result for each source is a **different** file `data/NAME.sqlite` with geometries, attributes and RTree, normalized to EPSG:4326. Source files are unchanged. Failed imports do not replace the previously published dataset.
 
 ## 7. Create reusable symbols and styles
 
@@ -252,3 +252,5 @@ All commands use `php bin/console.php COMMAND` in the project root. There is int
 - **Config or SQLite downloadable by URL:** halt deployment and fix access restrictions immediately.
 
 See [VALIDATION.md](docs/VALIDATION.md) for scope, budgets, tests and remaining production checks.
+
+For concurrency, monitoring, upgrade steps and measured resource use, see [Production operation](docs/PRODUCTION.md).

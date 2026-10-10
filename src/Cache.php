@@ -22,16 +22,24 @@ final class Cache
         if (!$this->config->server['cache_slots'] || !$this->config->server['cache_ttl']) {
             return null;
         }
-        $path = $this->path($key);
-        if (!is_file($path) || filemtime($path) < time() - $this->config->server['cache_ttl']) {
+        // Open first: an atomic slot replacement or clear-cache must not turn
+        // an optional cache miss into a failed WMS request.
+        $handle = @fopen($this->path($key), 'rb');
+        if ($handle === false) {
             return null;
         }
-        $bytes = file_get_contents($path);
-        if ($bytes === false || substr($bytes, 0, 65) !== $key . "\n") {
-            return null;
+        try {
+            $stat = fstat($handle);
+            $maximum = $this->config->server['max_pixels'] * 5 + 1048576;
+            if ($stat === false || ($stat['mode'] & 0170000) !== 0100000 || $stat['mtime'] < time() - $this->config->server['cache_ttl']
+                || $stat['size'] > $maximum || fread($handle, 65) !== $key . "\n") {
+                return null;
+            }
+            $png = stream_get_contents($handle, $maximum);
+            return $png !== false && str_starts_with($png, "\x89PNG\r\n\x1a\n") ? $png : null;
+        } finally {
+            fclose($handle);
         }
-
-        return substr($bytes, 65);
     }
 
     public function write(string $key, string $png): void
@@ -40,17 +48,18 @@ final class Cache
             return;
         }
         $path = $this->path($key);
-        $temporary = tempnam($this->config->root . '/cache', 'render-');
+        $temporary = @tempnam($this->config->root . '/cache', 'render-');
         if ($temporary === false) {
-            throw new \RuntimeException('Cache is not writable.');
+            error_log('WMS cache: cannot create temporary file.');
+            return;
         }
         try {
-            if (file_put_contents($temporary, $key . "\n" . $png) !== strlen($png) + 65 || !rename($temporary, $path)) {
-                throw new \RuntimeException('Cannot write cache.');
+            if (@file_put_contents($temporary, $key . "\n" . $png) !== strlen($png) + 65 || !@rename($temporary, $path)) {
+                error_log('WMS cache: write failed; serving uncached response.');
             }
         } finally {
             if (is_file($temporary)) {
-                unlink($temporary);
+                @unlink($temporary);
             }
         }
     }

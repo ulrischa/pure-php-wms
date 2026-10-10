@@ -27,12 +27,28 @@ final class Renderer
         $dx = ($b[2] - $b[0]) / $this->map['width'] * $padding;
         $dy = ($b[3] - $b[1]) / $this->map['height'] * $padding;
         $bbox = [$b[0] - $dx,$b[1] - $dy,$b[2] + $dx,$b[3] + $dy];
+        return $this->toGeographicBounds($bbox);
+    }
+
+    public function queryBounds(float $x, float $y, int $radius): array
+    {
+        $b = $this->map['bbox'];
+        $dx = ($b[2] - $b[0]) / $this->map['width'];
+        $dy = ($b[3] - $b[1]) / $this->map['height'];
+        return $this->toGeographicBounds([
+            $b[0] + ($x - $radius) * $dx, $b[3] - ($y + $radius) * $dy,
+            $b[0] + ($x + $radius) * $dx, $b[3] - ($y - $radius) * $dy,
+        ]);
+    }
+
+    private function toGeographicBounds(array $bbox): array
+    {
         if (in_array($this->map['crs'], ['EPSG:4326','CRS:84'], true)) {
             return [max(-180, $bbox[0]),max(-85.05112878, $bbox[1]),min(180, $bbox[2]),min(85.05112878, $bbox[3])];
         }
         if ($this->map['crs'] === 'EPSG:3857') {
             // Avoid longitude normalization at the world edge wrapping an envelope.
-            $limit = 20037508.342789244;
+            $limit = 20037508.342789244 - 0.001;
             $bbox = [max(-$limit, $bbox[0]),max(-$limit, $bbox[1]),min($limit, $bbox[2]),min($limit, $bbox[3])];
         }
         $result = $this->projection->envelope($bbox, $this->map['crs'], 'EPSG:4326');

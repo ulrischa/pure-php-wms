@@ -26,17 +26,17 @@ final class Server
         if ($operation !== 'GetCapabilities' && $request->get('VERSION') !== '1.3.0') {
             throw new WmsException('Only WMS 1.3.0 is supported.');
         }
-        $datasets = [];
-        foreach ($service['layers'] as $layer) {
-            $dataset = $layer['dataset'];
-            $datasets[$dataset] ??= new Dataset($this->config->root . '/data/' . $dataset . '.sqlite');
-        }
         if ($operation === 'GetCapabilities') {
             $version = $request->get('VERSION', '1.3.0');
             if (!preg_match('/^\d+\.\d{1,2}\.\d{1,2}$/D', $version)) {
                 throw new WmsException('Invalid version.');
             }
 
+            $datasets = [];
+            foreach ($service['layers'] as $layer) {
+                $dataset = $layer['dataset'];
+                $datasets[$dataset] ??= $this->dataset($dataset);
+            }
             return ['text/xml',Capabilities::build($this->config, $id, $service, $datasets),0];
         }
         if ($operation === 'GetLegendGraphic') {
@@ -52,6 +52,11 @@ final class Server
             }
             $styles[] = $this->config->style($styleId);
         }
+        $datasets = [];
+        foreach ($map['layers'] as $name) {
+            $dataset = $service['layers'][$name]['dataset'];
+            $datasets[$dataset] ??= $this->dataset($dataset);
+        }
         $cache = new Cache($this->config);
         $revisions = [];
         foreach ($datasets as $key => $dataset) {
@@ -64,12 +69,12 @@ final class Server
                     $name = $part[$key] ?? ($key === 'font' ? 'DejaVuSans.ttf' : null);
                     if ($name !== null) {
                         $path = $this->config->resource($name, $ext);
-                        $resources[$name] = hash_file('sha256', $path);
+                        $resources[$name] ??= hash_file('sha256', $path);
                     }
                 }
             }
         }
-        $key = hash('sha256', json_encode(['renderer' => 1,'map' => $map,'styles' => $styles,'service' => $service,'datasets' => $revisions,'resources' => $resources], JSON_THROW_ON_ERROR));
+        $key = hash('sha256', json_encode(['renderer' => 2,'map' => $map,'styles' => $styles,'service' => $service,'datasets' => $revisions,'resources' => $resources], JSON_THROW_ON_ERROR));
         if ($operation === 'GetMap' && ($cached = $cache->read($key)) !== null) {
             return ['image/png',$cached,0];
         }
@@ -116,7 +121,11 @@ final class Server
         $requestedCount = trim($request->get('FEATURE_COUNT', '1'));
         $count = preg_match('/^\+?\d+$/D', $requestedCount) && (float)$requestedCount > 0
             ? min(100, (int)$requestedCount) : 1;
-        $queryLayers = explode(',', $request->get('QUERY_LAYERS'));
+        $queryLayers = array_values(array_unique(explode(',', $request->get('QUERY_LAYERS'))));
+        // The largest supported symbol is 128 px; include its radius in the
+        // spatial prefilter, then apply each feature's actual hit tolerance.
+        $bbox = $renderer->queryBounds($x + 0.5, $y + 0.5, 64);
+        $resultBytes = 0;
         $features = [];
         foreach ($queryLayers as $name) {
             $i = array_search($name, $map['layers'], true);
@@ -132,6 +141,7 @@ final class Server
             $i = array_search($name, $map['layers'], true);
             $layer = $service['layers'][$name];
             $matches = [];
+            $matchBytes = 0;
             foreach ($datasets[$layer['dataset']]->query($bbox, $this->config->server['max_features']) as $feature) {
                 $style = $renderer->symbolizer($styles[$i], $feature['properties']);
                 if (!$renderer->visible($style)) {
@@ -147,21 +157,33 @@ final class Server
                 $feature['properties'] = array_intersect_key($feature['properties'], array_flip($layer['query_fields']));
                 $feature['properties'] = (object)$feature['properties'];
                 $feature['id'] = $name . '.' . $feature['id'];
-                $matches[] = ['distance' => $distance, 'feature' => $feature];
-                usort($matches, static fn (array $a, array $b): int => $a['distance'] <=> $b['distance'] ?: strcmp($a['feature']['id'], $b['feature']['id']));
+                if ($format === 'text/plain') {
+                    unset($feature['geometry']);
+                }
+                // Retain serialized results rather than large PHP coordinate arrays.
+                $encoded = json_encode($feature, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $matches[] = ['distance' => $distance, 'id' => $feature['id'], 'encoded' => $encoded];
+                $matchBytes += strlen($encoded);
+                usort($matches, static fn (array $a, array $b): int => $a['distance'] <=> $b['distance'] ?: strcmp($a['id'], $b['id']));
                 if (count($matches) > $count) {
-                    array_pop($matches);
+                    $removed = array_pop($matches);
+                    $matchBytes -= strlen($removed['encoded']);
+                }
+                if ($resultBytes + $matchBytes > 8388608) {
+                    throw new WmsException('Feature info exceeds 8 MiB. Reduce FEATURE_COUNT or QUERY_LAYERS.', 'NoApplicableCode', 503);
                 }
             }
+            $resultBytes += $matchBytes;
             foreach ($matches as $match) {
-                $features[] = $match['feature'];
+                $features[] = $match['encoded'];
             }
         }
         if ($format === 'application/json') {
-            return ['application/json',json_encode(['type' => 'FeatureCollection','features' => $features], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),0];
+            return ['application/json','{"type":"FeatureCollection","features":[' . implode(',', $features) . ']}',0];
         }
         $text = '';
-        foreach ($features as $feature) {
+        foreach ($features as $encoded) {
+            $feature = json_decode($encoded, true, 64, JSON_THROW_ON_ERROR);
             $text .= $feature['id'] . "\n";
             foreach ($feature['properties'] as $name => $value) {
                 $text .= $name . ': ' . json_encode($value, JSON_UNESCAPED_UNICODE) . "\n";
@@ -169,6 +191,11 @@ final class Server
         }
 
         return ['text/plain',$text ?: "No matching features.\n",0];
+    }
+
+    private function dataset(string $id): Dataset
+    {
+        return new Dataset($this->config->root . '/data/' . $id . '.sqlite');
     }
 
     private function legend(Request $request, array $service): array

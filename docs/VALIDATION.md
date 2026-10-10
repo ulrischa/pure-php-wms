@@ -8,8 +8,9 @@ Recorded environment: Linux, **PHP CLI 8.3.31**, GD/FreeType, PDO_SQLite with RT
 
 | Test | Recorded result |
 |---|---|
-| `php tests/run.php` | **105 checks passed** |
+| `php tests/run.php` | **140 checks passed** |
 | `python tests/http_smoke.py php` | **20 HTTP checks passed** |
+| `python tests/concurrency.py php` (Linux) | **9 checks passed; 80 requests with 8 clients** |
 | PHP syntax checking | Source and tests free of syntax errors in the recorded run |
 | `composer validate --strict` | Valid manifest and lock file |
 | Composer security advisory check at install/update | No reported known advisories for pinned packages at that time |
@@ -84,3 +85,7 @@ This is only a functional scale check, not an Apache/shared-hosting capacity for
 - [JSON Machine](https://github.com/halaxa/json-machine)
 
 Official reference XSDs are included in `tests/schemas/` for repeatable offline checks (schema import paths were adjusted locally while definitions/license notices were retained). Additional documents and reference material supplied for the review are described in [OGC_REFERENCE_REVIEW.md](OGC_REFERENCE_REVIEW.md).
+
+## Streaming and production-hardening follow-up
+
+See [PRODUCTION.md](PRODUCTION.md) for the 32 MiB SHP import, before/after memory comparison, concurrent cache deletion, render admission/recovery checks and remaining hosting-specific validation. These checks add streaming Z/M/null/deleted-record handling, malformed lengths/types, local FeatureInfo selection from a 6,000-feature map, bounded result payloads, nested property output and Mercator edge envelopes.

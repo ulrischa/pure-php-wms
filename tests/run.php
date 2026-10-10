@@ -192,4 +192,5 @@ try {
     rmdir($temp);
 }
 require __DIR__ . "/ogc_regression.php";
+require __DIR__ . "/hardening.php";
 echo "Passed $checks total checks\n";

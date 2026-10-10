@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace PureWms;
 
-use PhpMyAdmin\ShapeFile\{ShapeFile, ShapeType};
+use PhpMyAdmin\ShapeFile\ShapeType;
 use JsonMachine\Items;
 use JsonMachine\JsonDecoder\ExtJsonDecoder;
 
@@ -37,25 +37,9 @@ final class Sources
 
     private static function shapefile(string $path, string $encoding): \Generator
     {
-        if (filesize($path) > 16777216) {
-            throw new \RuntimeException('Shapefiles are limited to 16 MiB for the in-memory reader. Split larger files or export GeoJSON.');
-        }
-        self::checkShp($path);
-        $memory = trim(ini_get('memory_limit'));
-        if ($memory !== '-1') {
-            $unit = strtolower(substr($memory, -1));
-            $available = (float)$memory * (['g' => 1073741824,'m' => 1048576,'k' => 1024][$unit] ?? 1);
-            if (memory_get_usage(true) + filesize($path) * 100 > $available * 0.8) {
-                throw new \RuntimeException('Not enough PHP memory for this SHP import. Import locally with a higher memory_limit or export GeoJSON.');
-            }
-        }
-        $shape = new ShapeFile(ShapeType::Point);
-        if (!$shape->loadFromFile(substr($path, 0, -4) . '.*')) {
-            throw new \RuntimeException('Shapefile: ' . $shape->lastError);
-        }
         $dbf = Dbf::rows(substr($path, 0, -4) . '.dbf', $encoding);
         $dbf->rewind();
-        foreach ($shape->records as $record) {
+        foreach (ShpReader::records($path) as $record) {
             if (!$dbf->valid()) {
                 throw new \RuntimeException('SHP has more records than DBF.');
             }
@@ -123,63 +107,6 @@ final class Sources
         }
 
         return ['type' => 'MultiPolygon','coordinates' => array_values($polygons)];
-    }
-
-    private static function checkShp(string $path): void
-    {
-        $file = fopen($path, 'rb');
-        try {
-            $header = fread($file, 100);
-            $size = filesize($path);
-            if (strlen($header) !== 100 || unpack('N', substr($header, 0, 4))[1] !== 9994 || unpack('N', substr($header, 24, 4))[1] * 2 !== $size) {
-                throw new \RuntimeException('Invalid SHP header or length.');
-            }
-            $records = 0;
-            while (ftell($file) < $size) {
-                $head = fread($file, 8);
-                if (strlen($head) !== 8 || ++$records > 100000) {
-                    throw new \RuntimeException('Invalid SHP record count.');
-                }
-                $length = unpack('N', substr($head, 4, 4))[1] * 2;
-                if ($length < 4 || $length > $size - ftell($file)) {
-                    throw new \RuntimeException('Truncated SHP record.');
-                }
-                $raw = fread($file, $length);
-                $type = unpack('V', substr($raw, 0, 4))[1];
-                if (!in_array($type, [0,1,3,5,8,11,13,15,18,21,23,25,28], true)) {
-                    throw new \RuntimeException('Unsupported SHP type.');
-                }
-                $base = $type % 10;
-                if ($base === 1 && $length < ([1 => 20,11 => 36,21 => 28][$type])) {
-                    throw new \RuntimeException('Truncated point.');
-                }
-                if (in_array($base, [3,5,8], true)) {
-                    if ($length < ($base === 8 ? 40 : 44)) {
-                        throw new \RuntimeException('Truncated SHP geometry.');
-                    }
-                    $parts = $base === 8 ? 0 : unpack('V', substr($raw, 36, 4))[1];
-                    $points = unpack('V', substr($raw, $base === 8 ? 36 : 40, 4))[1];
-                    $minimum = ($base === 8 ? 40 : 44) + 4 * $parts + 16 * $points;
-                    if ($parts > 1000 || $points > 250000 || ($base !== 8 && (($points > 0 && $parts === 0) || $parts > $points)) || $minimum > $length) {
-                        throw new \RuntimeException('SHP geometry limits or length exceeded.');
-                    }
-                    if ($base !== 8) {
-                        $previous = -1;
-                        for ($i = 0;$i < $parts;++$i) {
-                            $start = unpack('V', substr($raw, 44 + $i * 4, 4))[1];
-                            if ($start <= $previous || $start >= $points || ($i === 0 && $start !== 0)) {
-                                throw new \RuntimeException('Invalid SHP part index.');
-                            } $previous = $start;
-                        }
-                    }
-                    if ($type >= 10 && $type < 20 && $length < $minimum + 16 + 8 * $points) {
-                        throw new \RuntimeException('Truncated SHP Z values.');
-                    }
-                }
-            }
-        } finally {
-            fclose($file);
-        }
     }
 
     private static function geopackage(string $path, array $source): \Generator

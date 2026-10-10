@@ -127,7 +127,7 @@ sources/protected_areas.prj
 sources/protected_areas.cpg
 ```
 
-Make sure the data really uses EPSG:25832 and the DBF text encoding is Windows-1252. The importer **does not automatically interpret** `.prj` or `.cpg`; you explicitly declare CRS/encoding. Alternatively, export GeoJSON as **EPSG:4326** or select a vector table from a GeoPackage. A Shapefile `.shp` is limited to **16 MiB** by this importer; export bigger datasets as GeoJSON or split them into smaller parts.
+Make sure the data really uses EPSG:25832 and the DBF text encoding is Windows-1252. The importer **does not automatically interpret** `.prj` or `.cpg`; you explicitly declare CRS/encoding. Alternatively, export GeoJSON as **EPSG:4326** or select a vector table from a GeoPackage. Shapefiles are read **one record at a time**, up to the **256 MiB source-file limit**. Memory depends mainly on the current feature, not the total SHP size. A feature remains limited to 20,000 vertices and 1 MiB geometry JSON; split or simplify larger individual features in your GIS.
 
 **Step B — register the source.** Add this entry to the *existing* top-level object in `config/sources.json`, retaining any other sources:
 
@@ -336,6 +336,14 @@ composer test
 python tests/http_smoke.py php   # Optional: Python 3, actual HTTP requests
 ```
 
-The PHP built-in HTTP server in the smoke test is only for local development; Apache handles production requests. The available automated suite previously passed **105 functional** and **20 HTTP** checks on PHP 8.3; these numbers describe the recorded test run, not an OGC certification or your hosting environment. See [VALIDATION.md](docs/VALIDATION.md) and [OGC_REFERENCE_REVIEW.md](docs/OGC_REFERENCE_REVIEW.md).
+The PHP built-in HTTP server in the smoke test is only for local development; Apache handles production requests. The updated automated suite passed **140 functional**, **20 HTTP smoke** and **9 concurrency** checks on PHP 8.3; these numbers describe the recorded test run, not an OGC certification or your hosting environment. See [VALIDATION.md](docs/VALIDATION.md) and [OGC_REFERENCE_REVIEW.md](docs/OGC_REFERENCE_REVIEW.md).
 
 Dependencies: [phpMyAdmin Shapefile](https://github.com/phpmyadmin/shapefile), [Proj4php](https://github.com/proj4php/proj4php), [JSON Machine](https://github.com/halaxa/json-machine); locked versions in `composer.lock`. The application is licensed **GPL-3.0-or-later**. Bundled libraries and fonts retain their own licenses.
+
+## Performance and production operation
+
+The streaming importer was tested with a **32 MiB Shapefile containing 2.1 million vertices** under a 128 MiB PHP limit. The test reported 8 MiB peak PHP allocation and roughly 38 MiB process RSS. This is a measured synthetic workload, not a promise for arbitrary data.
+
+GetFeatureInfo uses a pixel-local spatial query and limits retained result payloads to 8 MiB. Map requests open only the datasets of selected layers; legends do not open data files. Cache reads tolerate concurrent cache cleanup, and failed cache writes are logged while a successfully rendered map is still returned. A writable cache/lock directory remains required for render admission control.
+
+See [production checks and reproducible measurements](docs/PRODUCTION.md) before deploying to your hosting account.
